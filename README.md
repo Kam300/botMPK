@@ -7,8 +7,13 @@
 Бот имеет модульную структуру, где различные функциональности вынесены в отдельные файлы:
 
 - `было.py` - основной файл бота с ключевой логикой
+- `main.py` - улучшенная точка входа с оптимизациями
 - `classroom_schedule.py` - модуль для работы с расписанием кабинетов
 - `cache_utils.py` - утилиты для кэширования данных
+- `teacher_schedule_processor.py` - оптимизированный процессор расписания преподавателей
+- `excel_cache.py` - система кэширования Excel файлов
+- `bot_concurrency.py` - модуль параллельной обработки команд
+- `schedule_wrapper.py` - обертка для интеграции оптимизаций расписания
 
 ## Функциональность
 
@@ -42,89 +47,73 @@
 - 🎓 - преподаватель
 - 👥 - группа и подгруппа
 
-# Enhanced Telegram Bot with True Concurrent Processing
+### Расписание преподавателей
 
-This is an enhanced version of the Telegram bot that significantly improves performance when handling multiple users and processing Excel files.
+Система оптимизированного составления расписания преподавателей (`teacher_schedule_processor.py`) обеспечивает:
 
-## Key Improvements
+- Умную систему кэширования с переменным временем хранения (60 минут для популярных преподавателей)
+- Автоматическое определение популярных преподавателей на основе частоты запросов
+- Фоновую предварительную загрузку расписаний для часто запрашиваемых преподавателей
+- Приоритизацию обработки файлов (сначала обычные расписания, затем замены)
+- Параллельную обработку Excel файлов через пулы потоков
+- Дедупликацию запросов для предотвращения повторной работы
 
-1. **True Concurrent Command Handling**: 
-   - Multiple users can interact with the bot simultaneously
-   - Commands from different users are processed in parallel
-   - Long-running operations don't block other users
-   - Patched at the core dispatcher level for true concurrency
+## Оптимизации и улучшения
 
-2. **Enhanced Teacher Schedule Processing**:
-   - Parallel processing of Excel files with larger thread pools
-   - Smart file selection based on date relevance
-   - Request deduplication to avoid redundant work
-   - Efficient caching of results
-   - Preloading of Excel files for faster first-time access
+### Истинно параллельная обработка команд
 
-3. **Advanced Excel File Caching**:
-   - In-memory caching of Excel workbooks
-   - Proactive preloading of Excel files at startup
-   - Asynchronous file loading to avoid blocking
-   - Automatic cache invalidation when files change
-   - Significant performance improvement for Excel operations
+- Обработка команд от разных пользователей происходит параллельно
+- Длительные операции не блокируют остальных пользователей
+- Применяется на уровне диспетчера для обеспечения истинного параллелизма
 
-4. **Non-Invasive Integration**:
-   - Works without modifying the original code
-   - Falls back to original implementation if enhanced version fails
-   - Maintains backward compatibility
+### Оптимизированная обработка Excel-файлов
 
-## How to Use
+- Кэширование Excel-книг в памяти для быстрого доступа
+- Проактивная предзагрузка файлов при запуске
+- Асинхронная загрузка файлов для предотвращения блокировок
+- Автоматическое обновление кэша при изменении файлов
+- Отслеживание частоты использования файлов
 
-Instead of running the original bot directly, use the enhanced version by running:
+### Предотвращение конфликтов
+
+- Использование файла блокировки для предотвращения запуска нескольких экземпляров бота
+- Прямой режим запуска, полностью минующий оригинальную точку входа
+- Корректная очистка ресурсов при завершении работы
+
+### Устойчивость к ошибкам
+
+- Автоматическое переключение на оригинальную реализацию при сбоях
+- Отслеживание и логирование всех операций
+- Механизм восстановления после ошибок
+
+## Запуск
+
+Для запуска оптимизированной версии бота используйте:
 
 ```bash
 python main.py
 ```
 
-This will start the bot with all the performance enhancements while maintaining the same functionality.
+## Производительность
 
-## How It Works
+- Значительное ускорение ответов на запросы расписания преподавателей
+- Уменьшение времени отклика для всех типов запросов
+- Возможность одновременного обслуживания большого количества пользователей
+- Эффективное использование ресурсов системы
+- Улучшенное время первого отклика благодаря предзагрузке данных
 
-The enhancement works through several mechanisms:
+## Технические детали
 
-### True Concurrent Command Handling
-- Patches the core dispatcher to process updates in separate tasks
-- Wraps all command handlers to run as asyncio tasks
-- Allows multiple commands to be processed simultaneously
-- Tracks tasks by user ID for proper cleanup
+### Системные требования
 
-### Teacher Schedule Processing
-- Uses dedicated thread pools for Excel file processing
-- Implements request deduplication to avoid redundant work
-- Only processes Excel files relevant to the requested dates
-- Caches results to avoid reprocessing
-- Preloads Excel files to improve first-time performance
+- Python 3.8 или выше
+- Библиотеки: python-telegram-bot, openpyxl, asyncio, dropbox
 
-### Advanced Excel File Caching
-- Maintains an in-memory cache of Excel workbooks
-- Proactively preloads Excel files at startup
-- Monitors files for changes to invalidate cache entries
-- Limits cache size to prevent memory issues
-- Significantly reduces file I/O operations
+### Архитектура
 
-## Files
+Бот использует асинхронную архитектуру для обеспечения параллельной обработки запросов и эффективного использования ресурсов. Ключевые компоненты:
 
-- `bot_concurrency.py`: Enables true concurrent command handling
-- `teacher_schedule_processor.py`: Optimizes teacher schedule processing
-- `excel_cache.py`: Implements advanced Excel file caching
-- `schedule_wrapper.py`: Provides integration with the original code
-- `main.py`: Entry point that applies all enhancements
-
-## Performance Benefits
-
-The enhanced version provides significant performance improvements:
-
-1. **Multiple Users**: Bot can handle many users simultaneously with true concurrency
-2. **Faster Response Times**: Excel processing is much faster, especially after first use
-3. **Reduced Resource Usage**: Avoids redundant processing and file loading
-4. **Better Scalability**: Can handle more users and larger workloads
-5. **Improved First-Time Performance**: Proactive preloading reduces initial delays
-
-## Troubleshooting
-
-If you encounter any issues with the enhanced version, you can revert to the original implementation by running the original bot directly. 
+- Точка входа `main.py` с прямым режимом запуска
+- Асинхронные обработчики команд с истинным параллелизмом
+- Многоуровневая система кэширования (память, файловая система)
+- Фоновые процессы для предзагрузки и обновления данных 
