@@ -3362,9 +3362,25 @@ async def get_schedule_for_days(group: str, subgroup: int = None, update: Update
             try:
                 dates = replacement_file.replace('.xlsx', '').split('-')
                 if len(dates) == 2:
-                    start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
-                    end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
-
+                    # Пробуем разные форматы даты
+                    start_date = None
+                    end_date = None
+                    
+                    # Сначала пробуем формат с двузначным годом
+                    try:
+                        start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
+                        end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                    except ValueError:
+                        # Пробуем формат с четырехзначным годом
+                        try:
+                            start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
+                            end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                        except ValueError:
+                            logger.warning(f"Не удалось распознать формат даты в файле: {replacement_file}")
+                            continue
+                    
+                    logger.info(f"Обработка файла замен: {replacement_file}, даты: {start_date} - {end_date}")
+                    
                     current_date = max(today, start_date)
                     while current_date <= end_date:
                         if current_date.weekday() != 6:
@@ -3372,6 +3388,7 @@ async def get_schedule_for_days(group: str, subgroup: int = None, update: Update
                         current_date += timedelta(days=1)
             except Exception as e:
                 logger.error(f"Ошибка при обработке файла замен {replacement_file}: {str(e)}")
+                logger.error(traceback.format_exc())
                 continue
 
         # Add next 7 days if no dates from replacement files
@@ -3388,9 +3405,40 @@ async def get_schedule_for_days(group: str, subgroup: int = None, update: Update
         async def process_date(date_str):
             try:
                 schedule = None
-                # Check replacements
+                logger.info(f"Обработка расписания на дату: {date_str}")
+                
+                # Найдем подходящие файлы замен для этой даты
+                applicable_replacement_files = []
+                date_obj = datetime.strptime(date_str, '%d.%m.%Y').date()
+                
                 for replacement_file in replacement_files:
+                    try:
+                        dates = replacement_file.replace('.xlsx', '').split('-')
+                        if len(dates) == 2:
+                            # Пробуем разные форматы даты
+                            try:
+                                # Сначала пробуем формат с двузначным годом
+                                start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
+                                end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                            except ValueError:
+                                try:
+                                    # Затем пробуем формат с четырехзначным годом
+                                    start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
+                                    end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                                except ValueError:
+                                    # Если не удается распознать - пропускаем файл
+                                    continue
+                            
+                            if start_date <= date_obj <= end_date:
+                                applicable_replacement_files.append(replacement_file)
+                                logger.info(f"Найден подходящий файл замен {replacement_file} для даты {date_str}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при проверке файла замен {replacement_file}: {e}")
+                
+                # Check replacements using the applicable files
+                for replacement_file in applicable_replacement_files:
                     replacement_path = os.path.join("downloaded_files", replacement_file)
+                    logger.info(f"Применение файла замен {replacement_file} для даты {date_str}")
                     temp_schedule = await run_blocking(
                         process_schedule_with_replacements,
                         schedule_file_path,
@@ -3412,6 +3460,7 @@ async def get_schedule_for_days(group: str, subgroup: int = None, update: Update
                         return (date_str, formatted_schedule)
             except Exception as e:
                 logger.error(f"Ошибка при обработке расписания на {date_str}: {str(e)}")
+                logger.error(traceback.format_exc())
             return None
 
         # Process all dates concurrently
