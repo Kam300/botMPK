@@ -15,13 +15,17 @@ excel_cache = {}
 excel_cache_lock = threading.Lock()
 
 # Maximum cache size (number of workbooks)
-MAX_CACHE_SIZE = 30  # Increased from 20
+MAX_CACHE_SIZE = 40  # Increased from 30
 # Cache expiration time in seconds (30 minutes)
-CACHE_EXPIRY = 1800  # Increased from 600 (10 minutes)
+CACHE_EXPIRY = 1800  # 30 minutes
 
 # Thread pool for Excel file operations
 # Increase thread pool size for better concurrency
-excel_io_pool = ThreadPoolExecutor(max_workers=10)  # Increased from 5
+excel_io_pool = ThreadPoolExecutor(max_workers=15)  # Increased from 10
+
+# Track file access frequency for prioritization
+file_access_counts = {}
+access_counts_lock = threading.Lock()
 
 # Add a new function to process workbooks in background
 def process_workbook_in_background(file_path, processor_func, *args, **kwargs):
@@ -46,11 +50,21 @@ def process_workbook_in_background(file_path, processor_func, *args, **kwargs):
     
     return excel_io_pool.submit(background_task)
 
+def update_file_access_count(file_path):
+    """Track file access to identify frequently used files"""
+    with access_counts_lock:
+        if file_path not in file_access_counts:
+            file_access_counts[file_path] = 0
+        file_access_counts[file_path] += 1
+        
 def get_cached_workbook(file_path):
     """
     Get a cached workbook or load it if not in cache.
     This avoids repeatedly loading the same Excel files.
     """
+    # Track file access to identify frequently used files
+    update_file_access_count(file_path)
+    
     with excel_cache_lock:
         current_time = time.time()
         
@@ -65,12 +79,22 @@ def get_cached_workbook(file_path):
         # Check if file is in cache
         if file_path in excel_cache:
             logger.debug(f"Using cached workbook for {file_path}")
+            # Update the timestamp to prevent early expiration of frequently used files
+            excel_cache[file_path] = (excel_cache[file_path][0], current_time)
             return excel_cache[file_path][0]
         
-        # If cache is full, remove oldest entry
+        # If cache is full, remove least frequently accessed entries
         if len(excel_cache) >= MAX_CACHE_SIZE:
-            oldest_key = min(excel_cache.keys(), key=lambda k: excel_cache[k][1])
-            del excel_cache[oldest_key]
+            # Get access counts for cached files
+            with access_counts_lock:
+                file_scores = {
+                    path: file_access_counts.get(path, 0) for path in excel_cache.keys()
+                }
+            
+            # Remove least frequently accessed file
+            least_used_key = min(file_scores.keys(), key=lambda k: file_scores[k])
+            del excel_cache[least_used_key]
+            logger.debug(f"Removed least used file {least_used_key} from cache")
         
         # Load workbook and add to cache
         try:
@@ -194,6 +218,18 @@ def start_file_monitor():
     thread.start()
     logger.info("File monitor thread started")
 
+# Get popular teachers list if available
+def get_popular_teachers():
+    """Get list of popular teachers if available"""
+    try:
+        if os.path.exists("popular_teachers.json"):
+            import json
+            with open("popular_teachers.json", "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading popular teachers: {e}")
+    return []
+
 # Preload Excel files to improve first-time performance
 def preload_excel_files():
     """
@@ -211,11 +247,24 @@ def preload_excel_files():
                 if f.endswith('.xlsx')
             ]
             
-            # Sort files by modification time (newest first)
-            excel_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+            # Get popular teachers
+            popular_teachers = get_popular_teachers()
             
-            # Limit to the most recent files
-            excel_files = excel_files[:MAX_CACHE_SIZE]
+            # Separate regular schedule files and replacement files
+            regular_files = [f for f in excel_files if '-' not in os.path.basename(f)]
+            replacement_files = [f for f in excel_files if '-' in os.path.basename(f)]
+            
+            # Sort regular files (always prioritize these)
+            regular_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+            
+            # Sort replacement files by modification time (newest first)
+            replacement_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+            
+            # Combine files with prioritization
+            prioritized_files = regular_files + replacement_files
+            
+            # Limit to the maximum cache size
+            prioritized_files = prioritized_files[:MAX_CACHE_SIZE]
             
             # Preload files in parallel
             def load_file(file_path):
@@ -226,10 +275,10 @@ def preload_excel_files():
                     logger.error(f"Error preloading {file_path}: {e}")
             
             # Use ThreadPoolExecutor to load files in parallel
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                executor.map(load_file, excel_files)
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                executor.map(load_file, prioritized_files)
             
-            logger.info(f"Preloaded {len(excel_files)} Excel files into cache")
+            logger.info(f"Preloaded {len(prioritized_files)} Excel files into cache")
         except Exception as e:
             logger.error(f"Error in preload thread: {e}")
     

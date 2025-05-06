@@ -147,7 +147,7 @@ def get_cached_student_schedule(group: str, subgroup: int) -> str:
         return None
 
 
-def cache_teacher_schedule(teacher_name: str, start_date: str, end_date: str, schedule_data: str):
+def cache_teacher_schedule(teacher_name: str, start_date: str, end_date: str, schedule_data: str, expiration=1800):
     """Кэширование расписания преподавателя"""
     try:
         with cache_lock:
@@ -163,12 +163,13 @@ def cache_teacher_schedule(teacher_name: str, start_date: str, end_date: str, sc
             cache_key = f"{teacher_name}_{start_date}_{end_date}"
             cache[cache_key] = {
                 'data': schedule_data,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'expiration': expiration  # Store expiration time in seconds
             }
 
             with open(TEACHER_CACHE_FILE, 'w', encoding='utf-8') as f:
                 json.dump(cache, f, ensure_ascii=False, indent=2)
-            logger.info(f"Кэш успешно сохранен для преподавателя {teacher_name}")
+            logger.info(f"Кэш успешно сохранен для преподавателя {teacher_name} с периодом действия {expiration} секунд")
     except Exception as e:
         logger.error(f"Ошибка при кэшировании расписания преподавателя: {e}")
 
@@ -192,16 +193,20 @@ def get_cached_teacher_schedule(teacher_name: str, start_date: str, end_date: st
             if cache_key in cache:
                 cached_data = cache[cache_key]
                 cached_time = datetime.fromisoformat(cached_data['timestamp'])
+                
+                # Get expiration time (default to 30 minutes if not specified)
+                expiration = cached_data.get('expiration', 1800)
 
-                # Проверяем актуальность кэша (30 минут)
-                if (datetime.now() - cached_time).total_seconds() < 1800:
-                    logger.info(f"Найден актуальный кэш для преподавателя {teacher_name}")
+                # Проверяем актуальность кэша с учетом периода действия
+                if (datetime.now() - cached_time).total_seconds() < expiration:
+                    logger.info(f"Найден актуальный кэш для преподавателя {teacher_name} (осталось {expiration - (datetime.now() - cached_time).total_seconds():.0f} секунд)")
                     return cached_data['data']
                 else:
                     logger.info(f"Кэш устарел для преподавателя {teacher_name}")
             return None
     except Exception as e:
         logger.error(f"Ошибка при получении кэшированного расписания преподавателя: {e}")
+        return None
 
 def get_cached_classroom_schedule(classroom, date_str):
     """

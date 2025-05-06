@@ -47,7 +47,7 @@ import httpx  # Add this import
 
 
 
-TELEGRAM_TOKEN="5849256613:AAH34MtjRPyBhrtQouFseQzVw5G9KJsX1WQ"
+TELEGRAM_TOKEN="5820204062:AAFTribI0L_XW5CHr8APPx0JhSM-q3jFnOA"
 file_access_semaphore = asyncio.Semaphore(3)
 # ID администраторов, которые могут очищать кэш
 # Чтобы узнать свой ID, отправьте боту команду /clear_cache и посмотрите ID в ответном сообщении

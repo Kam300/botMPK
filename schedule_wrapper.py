@@ -4,7 +4,7 @@ from functools import wraps
 from datetime import datetime
 import threading
 
-from teacher_schedule_processor import get_teacher_schedule_optimized
+from teacher_schedule_processor import get_teacher_schedule_optimized, preload_teacher_schedules
 from было import get_teacher_schedule as original_get_teacher_schedule
 
 logger = logging.getLogger(__name__)
@@ -15,8 +15,12 @@ ongoing_requests_lock = threading.Lock()
 
 # Semaphore to limit concurrent teacher schedule requests
 # This prevents overwhelming the system with too many requests
-MAX_CONCURRENT_SCHEDULE_REQUESTS = 15  # Increased from default
+MAX_CONCURRENT_SCHEDULE_REQUESTS = 20  # Increased from 15
 schedule_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCHEDULE_REQUESTS)
+
+# Flag to track if initial preloading has completed
+initial_preload_done = False
+initial_preload_lock = threading.Lock()
 
 async def get_teacher_schedule_wrapper(teacher_name: str, start_date: str, end_date: str) -> str:
     """
@@ -47,6 +51,19 @@ async def get_teacher_schedule_wrapper(teacher_name: str, start_date: str, end_d
     
     # Use a semaphore to limit concurrent requests
     async with schedule_semaphore:
+        # Trigger initial preload if not done yet
+        global initial_preload_done
+        if not initial_preload_done:
+            with initial_preload_lock:
+                if not initial_preload_done:
+                    try:
+                        # Start preloading popular teacher schedules in the background
+                        asyncio.create_task(preload_teacher_schedules())
+                        initial_preload_done = True
+                        logger.info("Started initial preloading of popular teacher schedules")
+                    except Exception as e:
+                        logger.error(f"Error starting initial preload: {e}")
+        
         # Create a new task for this request
         new_task = asyncio.create_task(get_teacher_schedule_optimized(teacher_name, start_date, end_date))
         
