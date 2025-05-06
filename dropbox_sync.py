@@ -507,12 +507,11 @@ def sync_replacements(dbx, force_check=False):
     try:
         logger.info("Синхронизация файлов замен")
 
-        # Получаем только файлы замен (формат dd.mm.yy-dd.mm.yy.xlsx)
+        # Получаем только файлы замен (формат dd.mm.yy-dd.mm.yy.xlsx или dd.mm.yyyy-dd.mm.yyyy.xlsx)
         current_files = [f for f in os.listdir(DOWNLOADS_DIR) 
                        if f.endswith('.xlsx') and 
                        '-' in f and 
-                       len(f.split('-')) == 2 and  # Проверяем формат файла замен
-                       all(len(part.split('.')) == 3 for part in f.replace('.xlsx', '').split('-'))]  # Проверяем формат даты
+                       len(f.split('-')) == 2]  # Проверяем формат файла замен
 
         # Получаем список новых файлов с сайта
         response = requests.get(REPLACEMENTS_URL)
@@ -534,15 +533,44 @@ def sync_replacements(dbx, force_check=False):
                 try:
                     # Проверяем, что это действительно файл замен с датами
                     date_parts = filename.replace('.xlsx', '').split('-')
-                    datetime.strptime(date_parts[0], '%d.%m.%y')
-                    datetime.strptime(date_parts[1], '%d.%m.%y')
+                    
+                    # Пробуем различные форматы дат
+                    start_date_str = date_parts[0]
+                    end_date_str = date_parts[1]
+                    
+                    # Пробуем формат DD.MM.YY
+                    try:
+                        start_date = datetime.strptime(start_date_str, '%d.%m.%y')
+                        end_date = datetime.strptime(end_date_str, '%d.%m.%y')
+                    except ValueError:
+                        # Пробуем формат DD.MM.YYYY
+                        try:
+                            start_date = datetime.strptime(start_date_str, '%d.%m.%Y')
+                            end_date = datetime.strptime(end_date_str, '%d.%m.%Y')
+                        except ValueError:
+                            # Если не удалось распознать дату, пропускаем файл
+                            logger.warning(f"Невозможно распознать даты в имени файла: {filename}")
+                            continue
+                    
                     replacement_files.append((href, filename))
-                except ValueError:
+                except Exception as e:
+                    logger.warning(f"Ошибка при проверке формата даты для файла {filename}: {e}")
                     continue
 
-        # Сортируем по дате в имени файла
+        # Сортируем по дате в имени файла (пробуем оба формата даты)
+        def get_sort_date(filename):
+            try:
+                date_str = filename[1].split('-')[0]
+                try:
+                    return datetime.strptime(date_str, '%d.%m.%y')
+                except ValueError:
+                    return datetime.strptime(date_str, '%d.%m.%Y')
+            except Exception:
+                # В случае ошибки возвращаем минимальную дату
+                return datetime.min
+                
         replacement_files.sort(
-            key=lambda x: datetime.strptime(x[1].split('-')[0], '%d.%m.%y'),
+            key=get_sort_date,
             reverse=True
         )
 
@@ -616,11 +644,11 @@ def sync_group_schedules(dbx, force_check=False):
     try:
         logger.info("Синхронизация расписаний групп")
         
-        # Получаем список текущих файлов расписаний групп
+        # Изменяем проверку на файлы замен, чтобы учесть новый формат дат
         current_files = [f for f in os.listdir(DOWNLOADS_DIR) 
                        if f.endswith('.xlsx') and 
                        ('-' not in f or  # Не файл замен
-                        (('-' in f) and not all(len(part.split('.')) == 3 for part in f.replace('.xlsx', '').split('-'))))]  # Не формат даты замены
+                        not is_replacement_file(f))]  # Функция проверки формата даты
         
         # Удаляем все существующие файлы расписаний групп
         for old_file in current_files:
@@ -703,7 +731,40 @@ def sync_group_schedules(dbx, force_check=False):
         logger.error(f"Ошибка при синхронизации расписаний групп: {e}")
         return []
 
-
+# Вспомогательная функция для проверки, является ли файл файлом замен
+def is_replacement_file(filename):
+    """Проверяет, является ли файл файлом замен (имеет формат даты в имени)."""
+    if not filename.endswith('.xlsx') or '-' not in filename:
+        return False
+    
+    try:
+        date_parts = filename.replace('.xlsx', '').split('-')
+        if len(date_parts) != 2:
+            return False
+        
+        # Проверяем формат первой даты
+        start_date_str = date_parts[0]
+        parts = start_date_str.split('.')
+        
+        # Должно быть три части (день, месяц, год)
+        if len(parts) != 3:
+            return False
+            
+        # Проверяем, что части можно преобразовать в числа
+        try:
+            day = int(parts[0])
+            month = int(parts[1])
+            year = int(parts[2])
+            
+            # Простая проверка на валидность даты
+            if not (1 <= day <= 31 and 1 <= month <= 12):
+                return False
+                
+            return True
+        except ValueError:
+            return False
+    except Exception:
+        return False
 
 def schedule_sync():
     """Настраивает расписание синхронизации"""

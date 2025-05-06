@@ -377,18 +377,37 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
             replacement_files = [f for f in os.listdir("downloaded_files") 
                               if f.endswith('.xlsx') and '-' in f]
             
+            logger.info(f"Найдены файлы замен для проверки: {replacement_files}")
+            
             for replacement_file in replacement_files:
                 try:
                     replacement_path = os.path.join("downloaded_files", replacement_file)
                     dates = replacement_file.replace('.xlsx', '').split('-')
                     if len(dates) != 2:
                         continue
-                        
-                    start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
-                    end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                    
+                    # Пробуем разные форматы даты
+                    start_date = None
+                    end_date = None
+                    try:
+                        # Пробуем формат DD.MM.YY
+                        start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
+                        end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                    except ValueError:
+                        try:
+                            # Пробуем формат DD.MM.YYYY
+                            start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
+                            end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                        except ValueError:
+                            logger.warning(f"Не удалось распознать формат даты в файле: {replacement_file}")
+                            continue
+                    
                     check_date = datetime.strptime(date_str, '%d.%m.%Y').date()
+                    
+                    logger.info(f"Проверка файла {replacement_file}: Искомая дата {check_date}, в файле {start_date} - {end_date}")
 
                     if start_date <= check_date <= end_date:
+                        logger.info(f"Найден подходящий файл замен: {replacement_file} для даты {date_str}")
                         # Загружаем файл замен
                         wb_replacements = openpyxl.load_workbook(replacement_path)
                         sheet_replacements = wb_replacements.active
@@ -1482,26 +1501,34 @@ def get_replacements_file(date_str):
     """Определяет файл с заменами для указанной даты"""
     try:
         target_date = datetime.strptime(date_str, '%d.%m.%Y')
-        files = [f for f in os.listdir("downloaded_files") if f.endswith('.xlsx') and f[0].isdigit()]
+        files = [f for f in os.listdir("downloaded_files") if f.endswith('.xlsx') and f[0].isdigit() and '-' in f]
 
         for file in files:
             try:
-                # Извлекаем даты из имени файла (формат: dd.mm.yy-dd.mm.yy.xlsx)
+                # Извлекаем даты из имени файла (форматы: dd.mm.yy-dd.mm.yy.xlsx или dd.mm.yyyy-dd.mm.yyyy.xlsx)
                 dates = file.replace('.xlsx', '').split('-')
                 if len(dates) != 2:
                     continue
 
-                # Добавляем '20' к году, если он двузначный
                 start_str = dates[0]
                 end_str = dates[1]
-                if len(start_str.split('.')[-1]) == 2:
-                    start_str = start_str.replace('.25', '.2025')
-                if len(end_str.split('.')[-1]) == 2:
-                    end_str = end_str.replace('.25', '.2025')
+                
+                # Определяем формат даты и преобразуем строки в объекты datetime
+                try:
+                    # Пробуем сначала формат с двузначным годом
+                    start_date = datetime.strptime(start_str, '%d.%m.%y')
+                    end_date = datetime.strptime(end_str, '%d.%m.%y')
+                except ValueError:
+                    try:
+                        # Пробуем формат с четырехзначным годом
+                        start_date = datetime.strptime(start_str, '%d.%m.%Y')
+                        end_date = datetime.strptime(end_str, '%d.%m.%Y')
+                    except ValueError:
+                        # Если не удалось распознать формат, пропускаем файл
+                        logger.warning(f"Не удалось распознать формат даты в файле: {file}")
+                        continue
 
-                start_date = datetime.strptime(start_str, '%d.%m.%Y')
-                end_date = datetime.strptime(end_str, '%d.%m.%Y')
-
+                # Проверяем, входит ли целевая дата в диапазон
                 if start_date <= target_date <= end_date:
                     logger.info(f"Найден файл замен для даты {date_str}: {file}")
                     return os.path.join("downloaded_files", file)
@@ -2001,22 +2028,43 @@ async def enter_classroom(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             try:
                 dates = file.replace('.xlsx', '').split('-')
                 if len(dates) == 2:
-                    start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
-                    end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                    # Пробуем разные форматы даты
+                    start_date = None
+                    end_date = None
                     
-                    # Add all dates in range that are today or later
-                    current_date = max(today, start_date)
-                    while current_date <= end_date:
-                        if current_date.weekday() != 6:  # Skip Sundays
-                            date_str = current_date.strftime('%d.%m.%Y')
-                            available_dates.append(date_str)
-                        current_date += timedelta(days=1)
+                    # Пробуем формат DD.MM.YY
+                    try:
+                        start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
+                        end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                    except ValueError:
+                        # Пробуем формат DD.MM.YYYY
+                        try:
+                            start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
+                            end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                        except ValueError:
+                            logger.warning(f"Не удалось распознать формат даты в файле: {file}")
+                            continue
+                    
+                    if start_date and end_date:
+                        # Add all dates in range that are today or later
+                        current_date = max(today, start_date)
+                        while current_date <= end_date:
+                            if current_date.weekday() != 6:  # Skip Sundays
+                                date_str = current_date.strftime('%d.%m.%Y')
+                                available_dates.append(date_str)
+                            current_date += timedelta(days=1)
             except Exception as e:
                 logger.error(f"Error processing file {file}: {e}")
+                logger.error(traceback.format_exc())
     
     if not available_dates:
+        # Log the files in the directory for debugging
+        all_files = [f for f in os.listdir("downloaded_files") if f.endswith('.xlsx')]
+        logger.info(f"All Excel files in directory: {all_files}")
+        logger.info(f"No available dates found for classroom {classroom}")
+        
         await update.message.reply_text(
-            "❌ Не найдены доступные даты в файлах замен."
+            "❌ Не найдены актуальные файлы замен."
         )
         return ConversationHandler.END
     
@@ -2026,9 +2074,14 @@ async def enter_classroom(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Create keyboard with dates (3 dates per row)
     keyboard = []
     row = []
+    
+    # Create a mapping between display format and actual date for reference
+    date_mapping = {}
+    
     for date_str in available_dates:
         date_obj = datetime.strptime(date_str, '%d.%m.%Y')
         formatted_date = f"{date_obj.strftime('%d.%m')} ({days_ru[date_obj.weekday()]})"
+        date_mapping[formatted_date] = date_str  # Store mapping
         row.append(formatted_date)
         if len(row) == 3:
             keyboard.append(row)
@@ -2039,22 +2092,22 @@ async def enter_classroom(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     keyboard.append(['Отмена'])
     
-    # Store available dates in user data for reference
-    context.user_data['available_dates'] = {
-        f"{date_obj.strftime('%d.%m')} ({days_ru[datetime.strptime(date, '%d.%m.%Y').weekday()]})": date
-        for date in available_dates
-        for date_obj in [datetime.strptime(date, '%d.%m.%Y')]
-    }
+    # Store the mapping in user_data
+    context.user_data['available_dates'] = date_mapping
+
+    # Log available dates for debugging
+    logger.info(f"Available dates for classroom {classroom}: {available_dates}")
+    logger.info(f"Date mapping created: {date_mapping}")
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        f"Выберите дату для кабинета {classroom}:",
+        "Выберите дату:",
         reply_markup=reply_markup
     )
     return CHOOSE_DATE_FOR_CLASSROOM
 
 async def choose_date_for_classroom(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработка выбора даты для кабинета"""
+    """Handle classroom date selection."""
     # Проверяем, не идет ли процесс обновления файлов
     if is_update_in_progress():
         status_message = get_update_status_message()
@@ -2066,6 +2119,7 @@ async def choose_date_for_classroom(update: Update, context: ContextTypes.DEFAUL
         return CHOOSE_ACTION
         
     selected_date_display = update.message.text.strip()
+    logger.info(f"User selected date: {selected_date_display}")
     
     # Check if user clicked Cancel
     if selected_date_display == "Отмена":
@@ -2081,15 +2135,84 @@ async def choose_date_for_classroom(update: Update, context: ContextTypes.DEFAUL
         )
         return ConversationHandler.END
     
-    # Get the actual date string from the display format
+    # Handle "Другой кабинет" option
+    if selected_date_display == "Другой кабинет":
+        keyboard = ReplyKeyboardMarkup([
+            ['Отмена']
+        ], resize_keyboard=True)
+        await update.message.reply_text(
+            "Введите номер кабинета (например: А403):",
+            reply_markup=keyboard
+        )
+        return ENTER_CLASSROOM
+    
+    # Handle "Другая дата" option
+    if selected_date_display == "Другая дата":
+        # Re-display the dates keyboard
+        date_mapping = context.user_data.get('available_dates', {})
+        if not date_mapping:
+            await update.message.reply_text(
+                "❌ Не найдены доступные даты. Пожалуйста, начните сначала."
+            )
+            return ConversationHandler.END
+        
+        # Convert the mapping back to a keyboard
+        keyboard = []
+        row = []
+        # Sort dates by actual date
+        sorted_dates = sorted(date_mapping.items(), 
+                              key=lambda x: datetime.strptime(x[1], '%d.%m.%Y'))
+        
+        # Create keyboard with sorted dates (3 per row)
+        for display_date, _ in sorted_dates:
+            row.append(display_date)
+            if len(row) == 3:
+                keyboard.append(row)
+                row = []
+        
+        if row:  # Add remaining dates
+            keyboard.append(row)
+        
+        keyboard.append(['Отмена'])
+        
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text(
+            "Выберите дату:",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_DATE_FOR_CLASSROOM
+    
+    # Get the date mapping
     date_mapping = context.user_data.get('available_dates', {})
-    if selected_date_display not in date_mapping:
+    logger.info(f"Available date mapping: {date_mapping}")
+    
+    # Handle different behaviors
+    selected_date = None
+    
+    # Check if the selected date is directly in the mapping
+    if selected_date_display in date_mapping:
+        selected_date = date_mapping[selected_date_display]
+        logger.info(f"Found direct match in mapping: {selected_date}")
+    else:
+        # Try to extract date from format like "06.05 (вторник)"
+        match = re.match(r'(\d{2})\.(\d{2}) \([а-яА-Я]+\)', selected_date_display)
+        if match:
+            day, month = match.groups()
+            # Try each mapped date to find a match
+            for displayed_date, actual_date in date_mapping.items():
+                if displayed_date.startswith(f"{day}.{month}"):
+                    selected_date = actual_date
+                    logger.info(f"Found match by pattern: {selected_date}")
+                    break
+    
+    # If still no match found
+    if not selected_date:
+        logger.warning(f"No date match found for: {selected_date_display}")
         await update.message.reply_text(
             "❌ Выбрана некорректная дата. Пожалуйста, выберите дату из списка."
         )
         return CHOOSE_DATE_FOR_CLASSROOM
     
-    selected_date = date_mapping[selected_date_display]
     classroom = context.user_data.get('classroom')
     
     # Send a waiting message
@@ -2097,23 +2220,44 @@ async def choose_date_for_classroom(update: Update, context: ContextTypes.DEFAUL
         f"🔍 Ищу расписание для кабинета {classroom} на {selected_date}..."
     )
     
-    # Get classroom schedule
-    schedule = await get_classroom_schedule(classroom, selected_date)
-    
-    # Return to main menu
-    keyboard = [
-        ['⏰ Расписание звонков','👥 Расписание группы'],
-        ['🎓 Расписание преподавателя','🚪 Расписание кабинета'],
-        ['Подписаться на замены', 'Отписаться от замен']
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        schedule,
-        reply_markup=reply_markup
-    )
-    
-    return ConversationHandler.END
+    try:
+        # Get classroom schedule
+        schedule = await get_classroom_schedule(classroom, selected_date)
+        
+        # Try to delete the wait message
+        try:
+            await wait_message.delete()
+        except Exception as e:
+            logger.warning(f"Could not delete wait message: {e}")
+        
+        # Create keyboard for returning to menu
+        keyboard = ReplyKeyboardMarkup([
+            ['Другой кабинет', 'Другая дата'],
+            ['Отмена']
+        ], resize_keyboard=True)
+        
+        # Send the schedule
+        await update.message.reply_text(schedule, reply_markup=keyboard)
+        
+        # Store date in context for potential "Other date" selection
+        context.user_data['last_checked_date'] = selected_date
+        
+        # Return to the same state to allow selecting another date
+        return CHOOSE_DATE_FOR_CLASSROOM
+        
+    except Exception as e:
+        logger.error(f"Error getting classroom schedule: {e}")
+        logger.error(traceback.format_exc())
+        
+        try:
+            await wait_message.delete()
+        except Exception as delete_error:
+            logger.warning(f"Failed to delete wait message: {delete_error}")
+            
+        await update.message.reply_text(
+            "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз."
+        )
+        return ConversationHandler.END
 
 async def handle_group_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Обработка запроса расписания группы"""
@@ -2238,23 +2382,40 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Получаем все файлы с заменами
         results = []
         for file in os.listdir("downloaded_files"):
-            if file.endswith(".xlsx"):
+            if file.endswith(".xlsx") and '-' in file:
                 try:
                     dates = file.replace('.xlsx', '').split('-')
                     if len(dates) == 2:
-                        start_date = datetime.strptime(dates[0], '%d.%m.%y')
-                        end_date = datetime.strptime(dates[1], '%d.%m.%y')
+                        # Пробуем разные форматы даты
+                        try:
+                            # Сначала пробуем формат с двузначным годом
+                            start_date = datetime.strptime(dates[0], '%d.%m.%y')
+                            end_date = datetime.strptime(dates[1], '%d.%m.%y')
+                        except ValueError:
+                            try:
+                                # Затем пробуем формат с четырехзначным годом
+                                start_date = datetime.strptime(dates[0], '%d.%m.%Y')
+                                end_date = datetime.strptime(dates[1], '%d.%m.%Y')
+                            except ValueError:
+                                logger.warning(f"Не удалось распознать формат даты в файле: {file}")
+                                continue
+                        
                         results.append((start_date, end_date, file))
-                except ValueError:
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке файла {file}: {str(e)}")
                     continue
 
         dates_to_check = set()
         latest_end_date = None
         earliest_start_date = None
 
+        # Выводим найденные файлы для отладки
+        logger.info(f"Найдены файлы замен: {[r[2] for r in results]}")
+
         for result in results:
             if result:
-                start_date, end_date, _ = result
+                start_date, end_date, file_name = result
+                logger.info(f"Обработка файла: {file_name}, даты: {start_date} - {end_date}")
                 if not latest_end_date or end_date > latest_end_date:
                     latest_end_date = end_date
                 if not earliest_start_date or start_date < earliest_start_date:
@@ -2266,14 +2427,15 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Заполняем даты для проверки
         dates_to_check = set()
         current_date = earliest_start_date
-        while current_date <= latest_end_date:
-            if current_date.weekday() != 6:  # Пропускаем воскресенье
-                dates_to_check.add(current_date.strftime('%d.%m.%Y'))
-            current_date += timedelta(days=1)
+        if latest_end_date:
+            while current_date <= latest_end_date:
+                if current_date.weekday() != 6:  # Пропускаем воскресенье
+                    dates_to_check.add(current_date.strftime('%d.%m.%Y'))
+                current_date += timedelta(days=1)
 
         # Проверяем кэш
-        start_date_str = earliest_start_date.strftime('%d.%m.%Y')
-        end_date_str = latest_end_date.strftime('%d.%m.%Y')
+        start_date_str = earliest_start_date.strftime('%d.%m.%Y') if earliest_start_date else today.strftime('%d.%m.%Y')
+        end_date_str = latest_end_date.strftime('%d.%m.%Y') if latest_end_date else today.strftime('%d.%m.%Y')
         
         cached_schedule = await run_blocking(
             get_cached_teacher_schedule,
@@ -2307,6 +2469,10 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 await wait_message.delete()
             except Exception as e:
                 logger.warning(f"Could not delete wait message: {e}")
+            
+            # Выводим все файлы для отладки
+            all_files = [f for f in os.listdir("downloaded_files") if f.endswith('.xlsx')]
+            logger.info(f"Все файлы Excel в директории: {all_files}")
             
             await update.message.reply_text("Не найдены актуальные файлы замен.")
             return ConversationHandler.END
@@ -2364,24 +2530,25 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             end_date_str,
             result_message
         )
-        logger.info(f"Cached schedule for teacher {text}")
-
+        
         await update.message.reply_text(result_message, reply_markup=keyboard)
         return CHOOSE_ACTION
 
     except Exception as e:
-        logger.error(f"Ошибка при получении расписания преподавателя: {str(e)}")
-        # В случае ошибки тоже показываем клавиатуру
-        keyboard = ReplyKeyboardMarkup([
-            ['Ввести другого преподавателя'],
-            ['Расписание звонков'],
-            ['Отмена']
-        ], resize_keyboard=True)
+        logger.error(f"Ошибка при обработке ввода имени преподавателя: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Attempt to retrieve the wait message from context and delete it
+        try:
+            if 'wait_message' in locals():
+                await wait_message.delete()
+        except Exception as delete_error:
+            logger.warning(f"Failed to delete wait message: {delete_error}")
+            
         await update.message.reply_text(
-            f"Произошла ошибка при получении расписания: {str(e)}",
-            reply_markup=keyboard
+            "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз."
         )
-        return CHOOSE_ACTION
+        return ConversationHandler.END
 
 async def enter_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Обработка ввода номера группы"""

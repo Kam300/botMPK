@@ -161,21 +161,32 @@ async def get_teacher_schedule_enhanced(teacher_name: str, start_date: str, end_
 def is_file_applicable_for_date(file_name, date_str):
     """Check if an Excel file is applicable for a specific date."""
     try:
-        # For files with date ranges (like 20.02.25-22.02.25.xlsx)
+        # For files with date ranges (like 20.02.25-22.02.25.xlsx or 20.02.2025-22.02.2025.xlsx)
         if '-' in file_name:
             dates = file_name.replace('.xlsx', '').split('-')
             if len(dates) == 2:
                 try:
-                    # Try different date formats
-                    try:
-                        start_date = datetime.strptime(dates[0], '%d.%m.%y')
-                        end_date = datetime.strptime(dates[1], '%d.%m.%y')
-                    except ValueError:
-                        # Try alternative format
-                        start_date = datetime.strptime(dates[0], '%d.%m.%Y')
-                        end_date = datetime.strptime(dates[1], '%d.%m.%Y')
-                    
                     target_date = datetime.strptime(date_str, '%d.%m.%Y')
+                    
+                    # Try different date formats
+                    start_str = dates[0]
+                    end_str = dates[1]
+                    
+                    # Try to parse with short year format first (DD.MM.YY)
+                    try:
+                        start_date = datetime.strptime(start_str, '%d.%m.%y')
+                        end_date = datetime.strptime(end_str, '%d.%m.%y')
+                    except ValueError:
+                        # Try with full year format (DD.MM.YYYY)
+                        try:
+                            start_date = datetime.strptime(start_str, '%d.%m.%Y')
+                            end_date = datetime.strptime(end_str, '%d.%m.%Y')
+                        except ValueError:
+                            logger.warning(f"Could not parse dates from filename {file_name} with any known format")
+                            # If we can't parse the date, assume it's not applicable
+                            return False
+                    
+                    # Check if target date is in range
                     return start_date.date() <= target_date.date() <= end_date.date()
                 except ValueError as e:
                     logger.warning(f"Could not parse date from filename {file_name}: {e}")
