@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import json
 import threading
 import traceback
+import re
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -191,7 +192,6 @@ def get_dropbox_client():
         return None
 
 
-
 def notify_subscribers(new_files):
     """Отправляет уведомления подписчикам о новых файлах замен"""
     try:
@@ -209,18 +209,42 @@ def notify_subscribers(new_files):
         # Формируем сообщение о новых заменах
         message = "🔔 *Обнаружены новые замены в расписании!*\n\n"
         for filename in new_files:
-            dates = filename.replace('.xlsx', '').split('-')
-            if len(dates) == 2:
-                try:
-                    start_date = datetime.strptime(dates[0], '%d.%m.%y').strftime('%d.%m.%Y')
-                    end_date = datetime.strptime(dates[1], '%d.%m.%y').strftime('%d.%m.%Y')
-                    message += f"• Замены на период: {start_date} - {end_date}\n"
-                except ValueError:
-                    message += f"• {filename}\n"
-            else:
-                # Если это расписание группы, а не замены
-                if '-' not in filename and filename.endswith('.xlsx'):
-                    message += f"• Обновлено расписание группы: {filename}\n"
+            # Проверяем, является ли это файл диапазона дат или одной даты
+            if '-' in filename and filename.endswith('.xlsx'):
+                dates = filename.replace('.xlsx', '').split('-')
+                if len(dates) == 2:
+                    try:
+                        start_date = datetime.strptime(dates[0], '%d.%m.%y').strftime('%d.%m.%Y')
+                        end_date = datetime.strptime(dates[1], '%d.%m.%y').strftime('%d.%m.%Y')
+                        message += f"• Замены на период: {start_date} - {end_date}\n"
+                    except ValueError:
+                        try:
+                            start_date = datetime.strptime(dates[0], '%d.%m.%Y').strftime('%d.%m.%Y')
+                            end_date = datetime.strptime(dates[1], '%d.%m.%Y').strftime('%d.%m.%Y')
+                            message += f"• Замены на период: {start_date} - {end_date}\n"
+                        except ValueError:
+                            message += f"• {filename}\n"
+            elif filename.endswith('.xlsx'):
+                # Проверяем, является ли это файл с одной датой
+                date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+                match = date_pattern.match(filename)
+                if match:
+                    date_str = match.group(1)
+                    try:
+                        formatted_date = datetime.strptime(date_str, '%d.%m.%y').strftime('%d.%m.%Y')
+                        message += f"• Замены на дату: {formatted_date}\n"
+                    except ValueError:
+                        try:
+                            formatted_date = datetime.strptime(date_str, '%d.%m.%Y').strftime('%d.%m.%Y')
+                            message += f"• Замены на дату: {formatted_date}\n"
+                        except ValueError:
+                            message += f"• {filename}\n"
+                else:
+                    # Если это расписание группы, а не замены
+                    if not is_replacement_file(filename):
+                        message += f"• Обновлено расписание группы: {filename}\n"
+                    else:
+                        message += f"• {filename}\n"
         
         message += "\nБудут доступны через 2 минуты"
         
@@ -507,11 +531,9 @@ def sync_replacements(dbx, force_check=False):
     try:
         logger.info("Синхронизация файлов замен")
 
-        # Получаем только файлы замен (формат dd.mm.yy-dd.mm.yy.xlsx или dd.mm.yyyy-dd.mm.yyyy.xlsx)
+        # Получаем только файлы замен (теперь проверяем через is_replacement_file)
         current_files = [f for f in os.listdir(DOWNLOADS_DIR) 
-                       if f.endswith('.xlsx') and 
-                       '-' in f and 
-                       len(f.split('-')) == 2]  # Проверяем формат файла замен
+                       if f.endswith('.xlsx') and is_replacement_file(f)]
 
         # Получаем список новых файлов с сайта
         response = requests.get(REPLACEMENTS_URL)
@@ -525,34 +547,13 @@ def sync_replacements(dbx, force_check=False):
             href = link.get('href')
             filename = link.text.strip()
             # Проверяем формат имени файла замен
-            if (href and ('.xlsx' in href or '.xls' in href) and 
-                '-' in filename and 
-                len(filename.replace('.xlsx', '').split('-')) == 2):
+            if (href and ('.xlsx' in href or '.xls' in href)):
                 if not filename.endswith('.xlsx'):
                     filename += '.xlsx'
                 try:
                     # Проверяем, что это действительно файл замен с датами
-                    date_parts = filename.replace('.xlsx', '').split('-')
-                    
-                    # Пробуем различные форматы дат
-                    start_date_str = date_parts[0]
-                    end_date_str = date_parts[1]
-                    
-                    # Пробуем формат DD.MM.YY
-                    try:
-                        start_date = datetime.strptime(start_date_str, '%d.%m.%y')
-                        end_date = datetime.strptime(end_date_str, '%d.%m.%y')
-                    except ValueError:
-                        # Пробуем формат DD.MM.YYYY
-                        try:
-                            start_date = datetime.strptime(start_date_str, '%d.%m.%Y')
-                            end_date = datetime.strptime(end_date_str, '%d.%m.%Y')
-                        except ValueError:
-                            # Если не удалось распознать дату, пропускаем файл
-                            logger.warning(f"Невозможно распознать даты в имени файла: {filename}")
-                            continue
-                    
-                    replacement_files.append((href, filename))
+                    if is_replacement_file(filename):
+                        replacement_files.append((href, filename))
                 except Exception as e:
                     logger.warning(f"Ошибка при проверке формата даты для файла {filename}: {e}")
                     continue
@@ -560,7 +561,13 @@ def sync_replacements(dbx, force_check=False):
         # Сортируем по дате в имени файла (пробуем оба формата даты)
         def get_sort_date(filename):
             try:
-                date_str = filename[1].split('-')[0]
+                date_part = filename[1]
+                # Проверяем, является ли это файлом с диапазоном дат или одной датой
+                if '-' in date_part:
+                    date_str = date_part.split('-')[0]
+                else:
+                    date_str = date_part.replace('.xlsx', '')
+                    
                 try:
                     return datetime.strptime(date_str, '%d.%m.%y')
                 except ValueError:
@@ -644,11 +651,9 @@ def sync_group_schedules(dbx, force_check=False):
     try:
         logger.info("Синхронизация расписаний групп")
         
-        # Изменяем проверку на файлы замен, чтобы учесть новый формат дат
+        # Получаем список файлов, которые НЕ являются файлами замен
         current_files = [f for f in os.listdir(DOWNLOADS_DIR) 
-                       if f.endswith('.xlsx') and 
-                       ('-' not in f or  # Не файл замен
-                        not is_replacement_file(f))]  # Функция проверки формата даты
+                       if f.endswith('.xlsx') and not is_replacement_file(f)]
         
         # Удаляем все существующие файлы расписаний групп
         for old_file in current_files:
@@ -734,35 +739,64 @@ def sync_group_schedules(dbx, force_check=False):
 # Вспомогательная функция для проверки, является ли файл файлом замен
 def is_replacement_file(filename):
     """Проверяет, является ли файл файлом замен (имеет формат даты в имени)."""
-    if not filename.endswith('.xlsx') or '-' not in filename:
+    if not filename.endswith('.xlsx'):
         return False
     
     try:
-        date_parts = filename.replace('.xlsx', '').split('-')
-        if len(date_parts) != 2:
-            return False
-        
-        # Проверяем формат первой даты
-        start_date_str = date_parts[0]
-        parts = start_date_str.split('.')
-        
-        # Должно быть три части (день, месяц, год)
-        if len(parts) != 3:
-            return False
+        # Проверяем формат файла с диапазоном дат (DD.MM.YY-DD.MM.YY.xlsx)
+        if '-' in filename:
+            date_parts = filename.replace('.xlsx', '').split('-')
+            if len(date_parts) != 2:
+                return False
             
-        # Проверяем, что части можно преобразовать в числа
-        try:
-            day = int(parts[0])
-            month = int(parts[1])
-            year = int(parts[2])
+            # Проверяем формат первой даты
+            start_date_str = date_parts[0]
+            parts = start_date_str.split('.')
             
-            # Простая проверка на валидность даты
-            if not (1 <= day <= 31 and 1 <= month <= 12):
+            # Должно быть три части (день, месяц, год)
+            if len(parts) != 3:
                 return False
                 
-            return True
-        except ValueError:
-            return False
+            # Проверяем, что части можно преобразовать в числа
+            try:
+                day = int(parts[0])
+                month = int(parts[1])
+                year = int(parts[2])
+                
+                # Простая проверка на валидность даты
+                if not (1 <= day <= 31 and 1 <= month <= 12):
+                    return False
+                    
+                return True
+            except ValueError:
+                return False
+        else:
+            # Проверяем формат файла с одной датой (DD.MM.YY.xlsx)
+            date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+            match = date_pattern.match(filename)
+            if not match:
+                return False
+                
+            date_str = match.group(1)
+            parts = date_str.split('.')
+            
+            # Должно быть три части (день, месяц, год)
+            if len(parts) != 3:
+                return False
+                
+            # Проверяем, что части можно преобразовать в числа
+            try:
+                day = int(parts[0])
+                month = int(parts[1])
+                year = int(parts[2])
+                
+                # Простая проверка на валидность даты
+                if not (1 <= day <= 31 and 1 <= month <= 12):
+                    return False
+                    
+                return True
+            except ValueError:
+                return False
     except Exception:
         return False
 

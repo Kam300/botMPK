@@ -191,13 +191,16 @@ def is_file_applicable_for_date(file_name, date_str):
     
     try:
         result = False
-        # Define a regex pattern for date range files
+        # Define regex patterns for date range and single date files
         import re
-        date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
-        match = date_pattern.match(file_name)
+        date_range_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+        single_date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
         
-        if match:
-            # This is a replacement file with dates
+        date_range_match = date_range_pattern.match(file_name)
+        single_date_match = single_date_pattern.match(file_name)
+        
+        if date_range_match:
+            # This is a replacement file with date range
             dates = extract_dates_from_replacement_file(file_name)
             target_date = datetime.strptime(date_str, '%d.%m.%Y').date()
             
@@ -206,9 +209,8 @@ def is_file_applicable_for_date(file_name, date_str):
             
             # If extraction failed, try direct comparison
             if not dates:
-                start_str, end_str = match.groups()
+                start_str, end_str = date_range_match.groups()
                 
-                # Try different date formats
                 try:
                     # Try with short year format (DD.MM.YY)
                     start_date = datetime.strptime(start_str, '%d.%m.%y').date()
@@ -218,13 +220,35 @@ def is_file_applicable_for_date(file_name, date_str):
                         # Try with full year format (DD.MM.YYYY)
                         start_date = datetime.strptime(start_str, '%d.%m.%Y').date()
                         end_date = datetime.strptime(end_str, '%d.%m.%Y').date()
-                    except ValueError:
+                        except ValueError:
                         # If we can't parse the dates, assume not applicable
-                        result = False
+                            result = False
                     
                     # Check if target date is in range
                 if not result and 'start_date' in locals() and 'end_date' in locals():
                     result = start_date <= target_date <= end_date
+        
+        elif single_date_match:
+            # This is a single date replacement file (e.g. 10.05.25.xlsx)
+            file_date_str = single_date_match.group(1)
+            target_date = datetime.strptime(date_str, '%d.%m.%Y').date()
+            
+            try:
+                # Try with short year format (DD.MM.YY)
+                file_date = datetime.strptime(file_date_str, '%d.%m.%y').date()
+            except ValueError:
+                try:
+                    # Try with full year format (DD.MM.YYYY)
+                    file_date = datetime.strptime(file_date_str, '%d.%m.%Y').date()
+                except ValueError:
+                    # If we can't parse the date, assume not applicable
+                    result = False
+                    file_date = None
+            
+            # Check if file date matches target date
+            if file_date and file_date == target_date:
+                result = True
+        
         else:
             # For regular schedule files (like ИСпВ-24-1.xlsx)
             # These are always applicable
@@ -240,138 +264,196 @@ def is_file_applicable_for_date(file_name, date_str):
     
     return result
 
-async def get_teacher_schedule_optimized(teacher_name: str, start_date: str, end_date: str) -> str:
-    """Optimized version that only processes relevant files for each date."""
+def extract_dates_from_replacement_file(file_name):
+    """Извлекает даты из имени файла замен (формат: DD.MM.YY-DD.MM.YY.xlsx или DD.MM.YY.xlsx)"""
+    dates = []
     try:
-        # Track teacher access to identify popular teachers
-        update_teacher_access(teacher_name)
+        # Убираем расширение .xlsx
+        base_name = file_name.replace('.xlsx', '')
+        
+        # Check for single-date format (10.05.25.xlsx)
+        import re
+        single_date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})$')
+        single_date_match = single_date_pattern.match(base_name)
+        
+        if single_date_match:
+            # This is a single date file
+            date_str = single_date_match.group(1)
+            try:
+                # Format DD.MM.YY
+                date_obj = datetime.strptime(date_str, '%d.%m.%y')
+            except ValueError:
+                try:
+                    # Format DD.MM.YYYY
+                    date_obj = datetime.strptime(date_str, '%d.%m.%Y')
+                except ValueError:
+                    return dates
+            
+            # Add the single date to the list
+            dates.append(date_obj.strftime('%d.%m.%Y'))
+            return dates
+        
+        # Пытаемся извлечь диапазон дат
+        if '-' in base_name:
+            # Проверяем, соответствует ли имя файла формату дат
+            # Шаблон для даты: NN.NN.NN-NN.NN.NN или NN.NN.NNNN-NN.NN.NNNN
+            date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})$')
+            match = date_pattern.match(base_name)
+            
+            if match:
+                start_str, end_str = match.groups()
+                
+                # Пробуем разные форматы даты
+                try:
+                    # Формат DD.MM.YY
+                    start_date = datetime.strptime(start_str, '%d.%m.%y')
+                    end_date = datetime.strptime(end_str, '%d.%m.%y')
+                except ValueError:
+                    try:
+                        # Формат DD.MM.YYYY
+                        start_date = datetime.strptime(start_str, '%d.%m.%Y')
+                        end_date = datetime.strptime(end_str, '%d.%m.%Y')
+                    except ValueError:
+                        return dates
+                
+                # Генерируем все даты в диапазоне
+                current_date = start_date
+                while current_date <= end_date:
+                    dates.append(current_date.strftime('%d.%m.%Y'))
+                    current_date += timedelta(days=1)
+            else:
+                # Это не файл дат, а файл группы (например, ИСпВ-24-1.xlsx)
+                logger.debug(f"Файл {file_name} не соответствует формату замен с датами")
+    
+    except Exception as e:
+        logger.error(f"Ошибка при извлечении дат из файла замен {file_name}: {e}")
+    
+    return dates
+
+async def get_teacher_schedule_optimized(teacher_name, start_date, end_date):
+    """
+    Optimized version of the teacher schedule function that processes files in parallel.
+    """
+    try:
+        logging.info(f"Starting optimized schedule retrieval for {teacher_name} from {start_date} to {end_date}")
         
         # Check cache first
         cached_schedule = get_cached_teacher_schedule(teacher_name, start_date, end_date)
         if cached_schedule:
-            logger.info(f"Using cached schedule for {teacher_name} from {start_date} to {end_date}")
+            logging.info(f"Using cached schedule for {teacher_name}")
             return cached_schedule
 
-        all_schedules = {}
+        # Get the list of Excel files
+        downloads_dir = "downloaded_files"
+        excel_files = [f for f in os.listdir(downloads_dir) if f.endswith('.xlsx')]
+        
+        # Separate regular schedule files and replacement files
+        regular_files = [f for f in excel_files if not is_file_applicable_for_date_range(f)]
+        replacement_files = [f for f in excel_files if is_file_applicable_for_date_range(f)]
+        
+        # Parse the input date range
         start_date_obj = datetime.strptime(start_date, '%d.%m.%Y').date()
         end_date_obj = datetime.strptime(end_date, '%d.%m.%Y').date()
-
-        # Get all files once
-        all_files = await run_blocking(lambda: os.listdir("downloaded_files"))
-        excel_files = [f for f in all_files if f.endswith('.xlsx')]
         
-        # Определяем регулярное выражение для файлов с датами замен
-        import re
-        date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
-        
-        # Организуем файлы по категориям
-        replacement_files = []
-        regular_files = []
-        
-        # Классифицируем файлы правильно
-        for f in excel_files:
-            if date_pattern.match(f):
-                # Это файл замен с датами
-                replacement_files.append(f)
-            else:
-                # Это обычный файл расписания
-                regular_files.append(f)
-        
-        # Sort replacement files by date (newest first) to prioritize recent replacements
-        replacement_files.sort(reverse=True)
-        
-        # Combine files with prioritization
-        prioritized_files = regular_files + replacement_files
-        
-        # Preload Excel files in parallel
-        preload_tasks = []
-        for file in prioritized_files[:25]:  # Limit to 25 files to avoid overloading
-            file_path = os.path.join("downloaded_files", file)
-            preload_tasks.append(get_cached_workbook_async(file_path))
-        
-        # Start preloading but don't wait for completion
-        preload_task = asyncio.create_task(asyncio.gather(*preload_tasks))
-        
-        # Get date ranges from replacement files
-        replacement_date_ranges = []
-        for file in replacement_files:
-            dates = extract_dates_from_replacement_file(file)
-            if dates:
-                start_date_str = dates[0]
-                end_date_str = dates[-1]
+        # Check for single-date files that may extend our date range
+        for file in excel_files:
+            if file.endswith('.xlsx') and file[0].isdigit() and "-" not in file:  # Single date file
                 try:
-                    start_file_date = datetime.strptime(start_date_str, '%d.%m.%Y').date()
-                    end_file_date = datetime.strptime(end_date_str, '%d.%m.%Y').date()
-                    replacement_date_ranges.append((start_file_date, end_file_date))
+                    single_date_str = file.replace('.xlsx', '')
+                    try:
+                        # Try DD.MM.YY format
+                        single_date = datetime.strptime(single_date_str, '%d.%m.%y').date()
+                    except ValueError:
+                        try:
+                            # Try DD.MM.YYYY format
+                            single_date = datetime.strptime(single_date_str, '%d.%m.%Y').date()
+                        except ValueError:
+                            # Not a date format we recognize
+                            continue
+                    
+                    # If this single date is outside our current range but should be included,
+                    # expand the range
+                    if single_date < start_date_obj:
+                        start_date_obj = single_date
+                        start_date = single_date.strftime('%d.%m.%Y')
+                        logging.info(f"Extended start date to {start_date} due to single date file {file}")
+                    elif single_date > end_date_obj:
+                        end_date_obj = single_date
+                        end_date = single_date.strftime('%d.%m.%Y')
+                        logging.info(f"Extended end date to {end_date} due to single date file {file}")
                 except Exception as e:
-                    logger.error(f"Error parsing date range for file {file}: {e}")
+                    logging.error(f"Error processing single date file {file}: {e}")
+                    continue
         
         # Process each date
         tasks = []
         file_date_pairs = []
-
+        
         current_date = start_date_obj
         while current_date <= end_date_obj:
             if current_date.weekday() != 6:  # Skip Sundays
                 date_str = current_date.strftime('%d.%m.%Y')
                 
-                # Process all dates regardless of whether they have replacement files
-                applicable_files = []
-                
-                # Regular schedule files are always applicable
+                # Process regular schedule files (always applicable)
                 for file in regular_files:
-                    applicable_files.append(file)
+                    file_path = os.path.join(downloads_dir, file)
+                    file_date_pairs.append((file_path, date_str))
                 
                 # Process applicable replacement files
                 for file in replacement_files:
-                    if await run_blocking(is_file_applicable_for_date, file, date_str):
-                        applicable_files.append(file)
+                    file_path = os.path.join(downloads_dir, file)
+                    if is_file_applicable_for_date(file, date_str):
+                        file_date_pairs.append((file_path, date_str))
                 
-                # Process each applicable file
-                for file in applicable_files:
-                    file_path = os.path.join("downloaded_files", file)
-                    tasks.append(process_excel_file_for_teacher(file_path, date_str, teacher_name))
-                    file_date_pairs.append((file, date_str))
+                # Also process single-date files that match this date exactly
+                for file in excel_files:
+                    if file.endswith('.xlsx') and file[0].isdigit() and "-" not in file:
+                        try:
+                            file_date_str = file.replace('.xlsx', '')
+                            # Try both date formats
+                            try:
+                                # Try DD.MM.YY format
+                                file_date = datetime.strptime(file_date_str, '%d.%m.%y').date()
+                            except ValueError:
+                                # Try DD.MM.YYYY format
+                                file_date = datetime.strptime(file_date_str, '%d.%m.%Y').date()
+                                
+                            if file_date == current_date:
+                                file_path = os.path.join(downloads_dir, file)
+                                file_date_pairs.append((file_path, date_str))
+                        except Exception:
+                            continue
             
             current_date += timedelta(days=1)
 
-        # Wait for all tasks to complete
+        # Create tasks for all file-date pairs
+        for file_path, date_str in file_date_pairs:
+            tasks.append(parse_teacher_schedule_thread_safe(file_path, date_str, teacher_name))
+        
+        # Execute all tasks in parallel
         results = await asyncio.gather(*tasks)
 
-        # Process results
-        for i, result in enumerate(results):
-            if result:
-                file, date_str = file_date_pairs[i]
+        # Combine all results into a single schedule
+        all_schedules = {}
+        for date_str, schedule in results:
+            if schedule:  # Only add if we found something for this date
                 if date_str not in all_schedules:
                     all_schedules[date_str] = {}
-                all_schedules[date_str].update(result)
-
-        # Format the final schedule
-        formatted_schedule = await run_blocking(
-            format_teacher_schedule,
-            all_schedules,
-            teacher_name,
-            start_date,
-            end_date
-        )
-
-        # Cache the result with a longer expiration for popular teachers
-        if teacher_name in POPULAR_TEACHERS:
-            cache_teacher_schedule(teacher_name, start_date, end_date, formatted_schedule, expiration=3600)  # 1 hour
+                all_schedules[date_str].update(schedule)
+        
+        if all_schedules:
+            # Format the schedule
+            formatted_schedule = format_teacher_schedule(all_schedules, teacher_name, start_date, end_date)
+            
+            # Cache the result
+            cache_teacher_schedule(teacher_name, start_date, end_date, formatted_schedule)
+            
+            return formatted_schedule
         else:
-            cache_teacher_schedule(teacher_name, start_date, end_date, formatted_schedule)  # Default expiration
-        
-        # Make sure preloading is complete before returning
-        try:
-            await asyncio.wait_for(preload_task, timeout=0.1)
-        except asyncio.TimeoutError:
-            # It's okay if preloading is still ongoing
-            pass
-        
-        return formatted_schedule
+            return f"Расписание для {teacher_name} на указанный период не найдено."
 
     except Exception as e:
-        logger.error(f"Error getting optimized teacher schedule: {e}")
+        logging.error(f"Error in get_teacher_schedule_optimized: {e}")
         return f"Ошибка при получении расписания преподавателя: {str(e)}"
 
 # Function to preload schedules for popular teachers in the background
@@ -519,51 +601,6 @@ def extract_teachers_from_file(file_path):
         logger.error(f"Ошибка при извлечении преподавателей из {file_path}: {e}")
         return set()
 
-def extract_dates_from_replacement_file(file_name):
-    """Извлекает даты из имени файла замен (формат: DD.MM.YY-DD.MM.YY.xlsx)"""
-    dates = []
-    try:
-        # Убираем расширение .xlsx
-        base_name = file_name.replace('.xlsx', '')
-        
-        # Пытаемся извлечь диапазон дат
-        if '-' in base_name:
-            # Проверяем, соответствует ли имя файла формату дат
-            # Шаблон для даты: NN.NN.NN-NN.NN.NN или NN.NN.NNNN-NN.NN.NNNN
-            import re
-            date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})$')
-            match = date_pattern.match(base_name)
-            
-            if match:
-                start_str, end_str = match.groups()
-                
-                # Пробуем разные форматы даты
-                try:
-                    # Формат DD.MM.YY
-                    start_date = datetime.strptime(start_str, '%d.%m.%y')
-                    end_date = datetime.strptime(end_str, '%d.%m.%y')
-                except ValueError:
-                    try:
-                        # Формат DD.MM.YYYY
-                        start_date = datetime.strptime(start_str, '%d.%m.%Y')
-                        end_date = datetime.strptime(end_str, '%d.%m.%Y')
-                    except ValueError:
-                        return dates
-                
-                # Генерируем все даты в диапазоне
-                current_date = start_date
-                while current_date <= end_date:
-                    dates.append(current_date.strftime('%d.%m.%Y'))
-                    current_date += timedelta(days=1)
-            else:
-                # Это не файл дат, а файл группы (например, ИСпВ-24-1.xlsx)
-                logger.debug(f"Файл {file_name} не соответствует формату замен с датами")
-    
-    except Exception as e:
-        logger.error(f"Ошибка при извлечении дат из файла замен {file_name}: {e}")
-    
-    return dates
-
 async def build_schedule_index():
     """Строит индекс всех файлов расписания и замен"""
     global schedule_index, schedule_index_initialized
@@ -590,9 +627,10 @@ async def build_schedule_index():
         file_list = os.listdir(files_dir)
         excel_files = [f for f in file_list if f.endswith('.xlsx')]
         
-        # Определяем регулярное выражение для файлов с датами замен
+        # Определяем регулярные выражения для файлов с датами замен
         import re
-        date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+        date_range_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+        single_date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
         
         # Организуем файлы по категориям
         replacement_files = []
@@ -600,8 +638,8 @@ async def build_schedule_index():
         
         # Классифицируем файлы правильно
         for f in excel_files:
-            if date_pattern.match(f):
-                # Это файл замен с датами
+            if date_range_pattern.match(f) or single_date_pattern.match(f):
+                # Это файл замен с датами или с одной датой
                 replacement_files.append(f)
             else:
                 # Это обычный файл расписания
@@ -748,13 +786,16 @@ async def get_teacher_schedule_with_index(teacher_name: str, start_date: str, en
         file_list = os.listdir(files_dir)
         excel_files = [f for f in file_list if f.endswith('.xlsx')]
         
-        # Находим файлы с заменами (имя файла содержит дату в формате DD.MM.YY-DD.MM.YY.xlsx)
+        # Находим файлы с заменами (имя файла содержит дату в формате DD.MM.YY-DD.MM.YY.xlsx или DD.MM.YY.xlsx)
         import re
-        date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+        date_range_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+        single_date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
         
         for file in excel_files:
-            match = date_pattern.match(file)
-            if match:
+            match_range = date_range_pattern.match(file)
+            match_single = single_date_pattern.match(file)
+            
+            if match_range:
                 try:
                     dates = file.replace('.xlsx', '').split('-')
                     if len(dates) == 2:
@@ -776,6 +817,29 @@ async def get_teacher_schedule_with_index(teacher_name: str, start_date: str, en
                         replacement_files_info.append((start_file_date, end_file_date, file_path))
                 except Exception as e:
                     logger.error(f"Ошибка при обработке файла {file}: {str(e)}")
+                    continue
+            
+            elif match_single:
+                try:
+                    date_str = match_single.group(1)
+                    
+                    # Пробуем разные форматы даты
+                    try:
+                        # Сначала пробуем формат с двузначным годом
+                        file_date = datetime.strptime(date_str, '%d.%m.%y').date()
+                    except ValueError:
+                        try:
+                            # Затем пробуем формат с четырехзначным годом
+                            file_date = datetime.strptime(date_str, '%d.%m.%Y').date()
+                        except ValueError:
+                            logger.warning(f"Не удалось распознать формат даты в файле: {file}")
+                            continue
+                    
+                    # Для файлов с одной датой используем ту же дату как начало и конец
+                    file_path = os.path.join(files_dir, file)
+                    replacement_files_info.append((file_date, file_date, file_path))
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке файла с одной датой {file}: {str(e)}")
                     continue
         
         # Собираем только даты, которые действительно относятся к файлам с заменами

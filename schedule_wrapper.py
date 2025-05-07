@@ -4,6 +4,7 @@ from functools import wraps
 from datetime import datetime, timedelta
 import threading
 import os
+import re
 
 from teacher_schedule_processor import (
     get_teacher_schedule_optimized, 
@@ -17,6 +18,24 @@ from было import parse_teacher_schedule, format_teacher_schedule, run_blocki
 from cache_utils import get_cached_teacher_schedule, cache_teacher_schedule
 
 logger = logging.getLogger(__name__)
+
+# Function to check if a file is a replacement file based on its name
+def is_replacement_file(filename):
+    """Проверяет, является ли файл файлом замен (по формату имени)"""
+    if not filename.endswith('.xlsx'):
+        return False
+        
+    # Проверка формата с диапазоном дат (DD.MM.YY-DD.MM.YY.xlsx)
+    date_range_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+    if date_range_pattern.match(filename):
+        return True
+    
+    # Проверка формата с одной датой (DD.MM.YY.xlsx)
+    single_date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+    if single_date_pattern.match(filename):
+        return True
+    
+    return False
 
 # Dictionary to track ongoing teacher schedule requests
 ongoing_requests = {}
@@ -64,6 +83,45 @@ async def get_teacher_schedule(teacher_name: str, start_date: str, end_date: str
     try:
         # Ensure index is built before proceeding
         await do_initial_setup()
+
+        # Check for single-date replacement files (10.05.25.xlsx format) that may extend the date range
+        files_dir = "downloaded_files"
+        replacement_files = [f for f in os.listdir(files_dir) 
+                             if f.endswith('.xlsx') and f[0].isdigit()]
+                             
+        # Parse the input date range
+        start_date_obj = datetime.strptime(start_date, '%d.%m.%Y').date()
+        end_date_obj = datetime.strptime(end_date, '%d.%m.%Y').date()
+        
+        # Expand the start/end date range if we find single-date files outside the specified range
+        for file in replacement_files:
+            if "-" not in file:  # Single date file
+                try:
+                    single_date_str = file.replace('.xlsx', '')
+                    try:
+                        # Try DD.MM.YY format
+                        single_date = datetime.strptime(single_date_str, '%d.%m.%y').date()
+                    except ValueError:
+                        try:
+                            # Try DD.MM.YYYY format
+                            single_date = datetime.strptime(single_date_str, '%d.%m.%Y').date()
+                        except ValueError:
+                            # Not a date format we recognize
+                            continue
+                    
+                    # If this single date is outside our current range but should be included,
+                    # expand the range
+                    if single_date < start_date_obj:
+                        start_date_obj = single_date
+                        start_date = single_date.strftime('%d.%m.%Y')
+                        logger.info(f"Extended start date to {start_date} due to single date file {file}")
+                    elif single_date > end_date_obj:
+                        end_date_obj = single_date
+                        end_date = single_date.strftime('%d.%m.%Y')
+                        logger.info(f"Extended end date to {end_date} due to single date file {file}")
+                    except Exception as e:
+                    logger.error(f"Error processing single date file {file}: {e}")
+                    continue
         
         # Create a unique key for this request
         request_key = f"{teacher_name}_{start_date}_{end_date}"
@@ -186,7 +244,7 @@ async def get_teacher_schedule(teacher_name: str, start_date: str, end_date: str
     except Exception as e:
         logger.error(f"Error in patched get_teacher_schedule: {e}")
         # Mark the future as failed (if it exists)
-        with ongoing_requests_lock:
+            with ongoing_requests_lock:
             if request_key in ongoing_requests and not ongoing_requests[request_key]['future'].done():
                 ongoing_requests[request_key]['future'].set_exception(e)
                 # Remove the request
@@ -214,16 +272,45 @@ async def get_simple_teacher_schedule(teacher_name: str, start_date: str, end_da
         files_dir = "downloaded_files"
         file_list = os.listdir(files_dir)
         
-        # Find replacement files that match the date pattern
-        import re
-        date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
-        replacement_files = [f for f in file_list if f.endswith('.xlsx') and date_pattern.match(f)]
+        # Find replacement files using our helper function
+        replacement_files = [f for f in file_list if is_replacement_file(f)]
         
-        # Process only the replacement files
-        all_schedules = {}
-        
+        # Check for single-date files that may extend our date range
         start_date_obj = datetime.strptime(start_date, '%d.%m.%Y').date()
         end_date_obj = datetime.strptime(end_date, '%d.%m.%Y').date()
+        
+        # Expand the date range if needed based on single-date files
+        for file in replacement_files:
+            if "-" not in file:  # Single date file
+                try:
+                    single_date_str = file.replace('.xlsx', '')
+                    try:
+                        # Try DD.MM.YY format
+                        single_date = datetime.strptime(single_date_str, '%d.%m.%y').date()
+                    except ValueError:
+                        try:
+                            # Try DD.MM.YYYY format
+                            single_date = datetime.strptime(single_date_str, '%d.%m.%Y').date()
+                        except ValueError:
+                            # Not a date format we recognize
+                            continue
+                    
+                    # If this single date is outside our current range but should be included,
+                    # expand the range
+                    if single_date < start_date_obj:
+                        start_date_obj = single_date
+                        start_date = single_date.strftime('%d.%m.%Y')
+                        logger.info(f"Extended start date to {start_date} due to single date file {file}")
+                    elif single_date > end_date_obj:
+                        end_date_obj = single_date
+                        end_date = single_date.strftime('%d.%m.%Y')
+                        logger.info(f"Extended end date to {end_date} due to single date file {file}")
+                except Exception as e:
+                    logger.error(f"Error processing single date file {file}: {e}")
+                    continue
+        
+        # Process each date in the (possibly expanded) range
+        all_schedules = {}
         
         current_date = start_date_obj
         while current_date <= end_date_obj:

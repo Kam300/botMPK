@@ -1225,13 +1225,22 @@ def format_teacher_schedule(schedule_data, teacher_name, start_date, end_date):
         if not schedule_data:
             return "\n".join(formatted) + "\n\nРасписание на указанный период не найдено"
         
-        # Sort dates chronologically
-        sorted_dates = sorted(schedule_data.keys(), 
-                             key=lambda date_str: datetime.strptime(date_str, '%d.%m.%Y'))
+        # Generate all dates in range
+        start_date_obj = datetime.strptime(start_date, '%d.%m.%Y')
+        end_date_obj = datetime.strptime(end_date, '%d.%m.%Y')
+        all_dates = []
         
-        # Use the sorted dates when iterating
-        for date_str in sorted_dates:
-            day_schedule = schedule_data[date_str]
+        # Get all dates in the range (including Saturdays)
+        current_date = start_date_obj
+        while current_date <= end_date_obj:
+            # Include all days except Sundays
+            if current_date.weekday() != 6:  # 6 is Sunday
+                all_dates.append(current_date.strftime('%d.%m.%Y'))
+            current_date += timedelta(days=1)
+        
+        # Process each date in chronological order
+        for date_str in all_dates:
+            day_schedule = schedule_data.get(date_str, {})
             
             date_obj = datetime.strptime(date_str, '%d.%m.%Y')
             weekday = days_ru[date_obj.weekday()]
@@ -1540,7 +1549,7 @@ def get_replacements_file(date_str):
     """Определяет файл с заменами для указанной даты"""
     try:
         target_date = datetime.strptime(date_str, '%d.%m.%Y')
-        files = [f for f in os.listdir("downloaded_files") if f.endswith('.xlsx') and f[0].isdigit() and '-' in f]
+        files = [f for f in os.listdir("downloaded_files") if f.endswith('.xlsx') and f[0].isdigit()]
 
         for file in files:
             try:
@@ -1934,6 +1943,39 @@ async def get_teacher_schedule(teacher_name: str, start_date: str, end_date: str
         all_schedules = {}
         start_date_obj = datetime.strptime(start_date, '%d.%m.%Y').date()
         end_date_obj = datetime.strptime(end_date, '%d.%m.%Y').date()
+
+        # Check for single-date replacement files (10.05.25.xlsx format)
+        replacement_files = await run_blocking(lambda: [
+            f for f in os.listdir("downloaded_files")
+            if f.endswith('.xlsx') and f[0].isdigit()
+        ])
+
+        # Expand the start/end date range if we find single-date files outside the specified range
+        for file in replacement_files:
+            if "-" not in file:  # Single date file
+                try:
+                    single_date_str = file.replace('.xlsx', '')
+                    try:
+                        # Try DD.MM.YY format
+                        single_date = datetime.strptime(single_date_str, '%d.%m.%y').date()
+                    except ValueError:
+                        try:
+                            # Try DD.MM.YYYY format
+                            single_date = datetime.strptime(single_date_str, '%d.%m.%Y').date()
+                        except ValueError:
+                            # Not a date format we recognize
+                            continue
+                    
+                    # If this single date is outside our current range but should be included,
+                    # expand the range
+                    if single_date < start_date_obj:
+                        start_date_obj = single_date
+                        start_date = single_date.strftime('%d.%m.%Y')
+                    elif single_date > end_date_obj:
+                        end_date_obj = single_date
+                        end_date = single_date.strftime('%d.%m.%Y')
+                except Exception:
+                    continue
 
         async def process_file_and_date(file, date_str):
             try:
@@ -3314,7 +3356,7 @@ async def get_schedule_for_days(group: str, subgroup: int = None, update: Update
             return f"Расписание для группы {group} не найдено."
 
         schedule_file_path = os.path.join("downloaded_files", schedule_file)
-        replacement_files = [f for f in schedule_files if '-' in f]
+        replacement_files = [f for f in schedule_files if (f[0].isdigit() and f.endswith('.xlsx'))]
 
         # Get dates to check
         dates_to_check = set()
@@ -3323,32 +3365,54 @@ async def get_schedule_for_days(group: str, subgroup: int = None, update: Update
         # Add dates from replacement files
         for replacement_file in replacement_files:
             try:
-                dates = replacement_file.replace('.xlsx', '').split('-')
-                if len(dates) == 2:
-                    # Пробуем разные форматы даты
-                    start_date = None
-                    end_date = None
-                    
-                    # Сначала пробуем формат с двузначным годом
-                    try:
-                        start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
-                        end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
-                    except ValueError:
-                        # Пробуем формат с четырехзначным годом
+                # Проверяем файл на формат с диапазоном дат
+                if '-' in replacement_file:
+                    dates = replacement_file.replace('.xlsx', '').split('-')
+                    if len(dates) == 2:
+                        # Пробуем разные форматы даты
+                        start_date = None
+                        end_date = None
+                        
+                        # Сначала пробуем формат с двузначным годом
                         try:
-                            start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
-                            end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                            start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
+                            end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
                         except ValueError:
-                            logger.warning(f"Не удалось распознать формат даты в файле: {replacement_file}")
+                            # Пробуем формат с четырехзначным годом
+                            try:
+                                start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
+                                end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                            except ValueError:
+                                logger.warning(f"Не удалось распознать формат даты в файле: {replacement_file}")
+                                continue
+                        
+                        logger.info(f"Обработка файла замен: {replacement_file}, даты: {start_date} - {end_date}")
+                        
+                        current_date = max(today, start_date)
+                        while current_date <= end_date:
+                            if current_date.weekday() != 6:
+                                dates_to_check.add(current_date.strftime('%d.%m.%Y'))
+                            current_date += timedelta(days=1)
+                
+                # Проверяем файл на формат с одной датой
+                else:
+                    single_date_str = replacement_file.replace('.xlsx', '')
+                    try:
+                        # Пробуем формат с двузначным годом
+                        single_date = datetime.strptime(single_date_str, '%d.%m.%y').date()
+                        if single_date >= today:
+                            dates_to_check.add(single_date.strftime('%d.%m.%Y'))
+                            logger.info(f"Обработка файла с одиночной датой: {replacement_file}, дата: {single_date}")
+                    except ValueError:
+                        try:
+                            # Пробуем формат с четырехзначным годом
+                            single_date = datetime.strptime(single_date_str, '%d.%m.%Y').date()
+                            if single_date >= today:
+                                dates_to_check.add(single_date.strftime('%d.%m.%Y'))
+                                logger.info(f"Обработка файла с одиночной датой: {replacement_file}, дата: {single_date}")
+                        except ValueError:
+                            # Не удалось распознать формат - это может быть обычный файл расписания
                             continue
-                    
-                    logger.info(f"Обработка файла замен: {replacement_file}, даты: {start_date} - {end_date}")
-                    
-                    current_date = max(today, start_date)
-                    while current_date <= end_date:
-                        if current_date.weekday() != 6:
-                            dates_to_check.add(current_date.strftime('%d.%m.%Y'))
-                        current_date += timedelta(days=1)
             except Exception as e:
                 logger.error(f"Ошибка при обработке файла замен {replacement_file}: {str(e)}")
                 logger.error(traceback.format_exc())
@@ -3376,25 +3440,46 @@ async def get_schedule_for_days(group: str, subgroup: int = None, update: Update
                 
                 for replacement_file in replacement_files:
                     try:
-                        dates = replacement_file.replace('.xlsx', '').split('-')
-                        if len(dates) == 2:
-                            # Пробуем разные форматы даты
+                        if '-' in replacement_file:
+                            # Файл с диапазоном дат
+                            dates = replacement_file.replace('.xlsx', '').split('-')
+                            if len(dates) == 2:
+                                # Пробуем разные форматы даты
+                                try:
+                                    # Сначала пробуем формат с двузначным годом
+                                    start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
+                                    end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                                except ValueError:
+                                    try:
+                                        # Затем пробуем формат с четырехзначным годом
+                                        start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
+                                        end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                                    except ValueError:
+                                        # Если не удается распознать - пропускаем файл
+                                        continue
+                                
+                                if start_date <= date_obj <= end_date:
+                                    applicable_replacement_files.append(replacement_file)
+                                    logger.info(f"Найден подходящий файл замен {replacement_file} для даты {date_str}")
+                        else:
+                            # Файл с одиночной датой
+                            single_date_str = replacement_file.replace('.xlsx', '')
                             try:
-                                # Сначала пробуем формат с двузначным годом
-                                start_date = datetime.strptime(dates[0], '%d.%m.%y').date()
-                                end_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                                # Пробуем формат с двузначным годом
+                                single_date = datetime.strptime(single_date_str, '%d.%m.%y').date()
+                                if single_date == date_obj:
+                                    applicable_replacement_files.append(replacement_file)
+                                    logger.info(f"Найден подходящий файл замен с одиночной датой {replacement_file} для даты {date_str}")
                             except ValueError:
                                 try:
                                     # Затем пробуем формат с четырехзначным годом
-                                    start_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
-                                    end_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                                    single_date = datetime.strptime(single_date_str, '%d.%m.%Y').date()
+                                    if single_date == date_obj:
+                                        applicable_replacement_files.append(replacement_file)
+                                        logger.info(f"Найден подходящий файл замен с одиночной датой {replacement_file} для даты {date_str}")
                                 except ValueError:
-                                    # Если не удается распознать - пропускаем файл
+                                    # Не удалось распознать формат - пропускаем файл
                                     continue
-                            
-                            if start_date <= date_obj <= end_date:
-                                applicable_replacement_files.append(replacement_file)
-                                logger.info(f"Найден подходящий файл замен {replacement_file} для даты {date_str}")
                     except Exception as e:
                         logger.error(f"Ошибка при проверке файла замен {replacement_file}: {e}")
                 
@@ -4296,5 +4381,22 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
+def is_replacement_file(filename):
+    """Проверяет, является ли файл файлом замен (по формату имени)"""
+    if not filename.endswith('.xlsx'):
+        return False
+        
+    # Проверка формата с диапазоном дат (DD.MM.YY-DD.MM.YY.xlsx)
+    date_range_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+    if date_range_pattern.match(filename):
+        return True
+    
+    # Проверка формата с одной датой (DD.MM.YY.xlsx)
+    single_date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+    if single_date_pattern.match(filename):
+        return True
+    
+    return False
 
 
