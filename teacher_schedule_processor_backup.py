@@ -221,8 +221,8 @@ def is_file_applicable_for_date(file_name, date_str):
                     except ValueError:
                         # If we can't parse the dates, assume not applicable
                         result = False
-                    
-                    # Check if target date is in range
+                
+                # Check if target date is in range
                 if not result and 'start_date' in locals() and 'end_date' in locals():
                     result = start_date <= target_date <= end_date
         else:
@@ -309,13 +309,22 @@ async def get_teacher_schedule_optimized(teacher_name: str, start_date: str, end
         # Process each date
         tasks = []
         file_date_pairs = []
-
+        
         current_date = start_date_obj
         while current_date <= end_date_obj:
             if current_date.weekday() != 6:  # Skip Sundays
                 date_str = current_date.strftime('%d.%m.%Y')
                 
-                # Process all dates regardless of whether they have replacement files
+                # Check if the current date is covered by any replacement file
+                is_date_in_replacements = False
+                for start_file_date, end_file_date in replacement_date_ranges:
+                    if start_file_date <= current_date <= end_file_date:
+                        is_date_in_replacements = True
+                        break
+                
+                # Only process dates that are covered by at least one replacement file
+                if is_date_in_replacements:
+                    # Filter files applicable for this date
                 applicable_files = []
                 
                 # Regular schedule files are always applicable

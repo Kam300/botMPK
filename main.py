@@ -134,7 +134,7 @@ def patch_notification_system():
                     logger.info(f"Found notifications file: {notification_file}")
                     with open(notification_file, "r", encoding='utf-8') as f:
                         notification_data = json.load(f)
-                    у
+                    
                     message = notification_data.get("message", "")
                     chat_ids = notification_data.get("chat_ids", [])
                     
@@ -219,186 +219,122 @@ def main():
             signal.original_handler = signal.getsignal(sig)
             signal.signal(sig, patched_signal_handler)
         
-        init_subscribers_file()
-        patch_было_module()
-        patch_notification_system()
+        # Support for asyncio in Jupiter Notebook
+        nest_asyncio.apply()
         
-        # Очистка кэша при запуске с указанием причины
-        selective_cache_clear(reason="startup")
-        # Специальная очистка кэша для расписаний преподавателей
-        selective_cache_clear(pattern="teacher_*", reason="teacher schedule date fix")
-        
-        # Инициализация кэша
+        # Initialize cache system
         init_cache()
         
-        # Import and apply patches with better error handling
-        try:
-            from bot_concurrency import patch_application_handlers, apply_all_concurrency_patches
-            # Apply all concurrency patches for true parallel processing
-            apply_all_concurrency_patches()
-            logger.info("Successfully applied concurrency patches")
-        except Exception as e:
-            logger.error(f"Error applying concurrency patches: {e}")
-            logger.error(traceback.format_exc())
-            logger.warning("Continuing without concurrency enhancements")
+        # Clear cache at startup (selective)
+        selective_cache_clear(pattern="*", reason="startup")
         
-        # Patch the get_teacher_schedule function with our optimized version
-        try:
+        # Start background processor for teacher schedules
+        start_background_processor()
+        
+        # Initialize subscribers file if it doesn't exist
+        init_subscribers_file()
+        
+        # Patch the было module to ensure json is imported
+        patch_было_module()
+
+        # Patch notification system to handle updates
+        patch_notification_system()  
+    
+        if not application_patched:
+            # Patch the function for getting teacher schedules
             patch_get_teacher_schedule()
-            logger.info("Successfully patched teacher schedule function")
             
-            # Start the background processor for teacher schedules
-            start_background_processor()
-            logger.info("Started background teacher schedule processor")
-        except Exception as e:
-            logger.error(f"Error patching teacher schedule function: {e}")
-            logger.error(traceback.format_exc())
-            logger.warning("Continuing with original teacher schedule implementation")
-        
-        # Patch Excel functions to use caching
-        try:
-            from excel_cache import patch_excel_functions, start_file_monitor, preload_excel_files
-            patch_excel_functions()
-            logger.info("Successfully patched Excel functions")
-            
-            # Start file monitor thread
-            start_file_monitor()
-            logger.info("Started file monitor thread")
-            
-            # Preload Excel files to improve first-time performance
-            preload_excel_files()
-            logger.info("Started Excel file preloading")
-        except Exception as e:
-            logger.error(f"Error setting up Excel caching: {e}")
-            logger.error(traceback.format_exc())
-            logger.warning("Continuing without Excel caching enhancements")
-        
-        logger.info("Starting bot with available enhancements")
-        
-        # Monkey patch the Application.run_polling method if available
-        try:
+            # Modify the original main function to support concurrency
             from telegram.ext import Application
+            
+            # Original run_polling method
             original_run_polling = Application.run_polling
             
+            # Define a patched version that enables concurrent updates
             def patched_run_polling(self, *args, **kwargs):
-                """Patched version of run_polling that applies concurrency enhancements"""
-                global application_patched
-                
-                try:
-                    # Apply concurrency patches to all handlers if available
-                    if not application_patched and hasattr(self, 'handlers') and self.handlers:
-                        from bot_concurrency import patch_application_handlers
-                        patch_application_handlers(self)
-                        application_patched = True
-                        logger.info("Applied concurrency patches to application handlers")
-                except Exception as e:
-                    logger.error(f"Error patching application handlers: {e}")
-                    logger.error(traceback.format_exc())
-                
-                # Ensure drop_pending_updates is True to avoid processing old updates
-                kwargs['drop_pending_updates'] = True
-                
-                # Call the original method
+                # Set concurrent_updates to 25 to allow more concurrent operations
+                kwargs['concurrent_updates'] = kwargs.get('concurrent_updates', 25)
+                # Call the original method with our enhanced parameters
                 return original_run_polling(self, *args, **kwargs)
             
             # Apply the patch
             Application.run_polling = patched_run_polling
-            logger.info("Successfully patched Application.run_polling")
-        except Exception as e:
-            logger.error(f"Error patching Application.run_polling: {e}")
-            logger.error(traceback.format_exc())
-        
-        # Patch the original main function to ensure we can intercept the application creation
-        try:
-            import было
-            original_было_main = было.main
             
-            def patched_было_main():
-                # Set the asyncio policy to allow more concurrent operations
-                try:
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                    logger.info("Applied nest_asyncio to allow nested event loops")
-                except ImportError:
-                    logger.warning("nest_asyncio not available, skipping")
-                
-                # Patch the Application.builder method to set concurrent_updates
-                try:
-                    from telegram.ext import Application
-                    original_builder = Application.builder
-                    
-                    def patched_builder():
-                        builder = original_builder()
-                        # Store the original build method
-                        original_build = builder.build
-                        
-                        # Create a patched build method that sets concurrent_updates
-                        def patched_build(*args, **kwargs):
-                            # Set concurrent_updates in kwargs
-                            kwargs['concurrent_updates'] = 30
-                            logger.info("Setting concurrent_updates to 30 in Application builder")
-                            # Call the original build method
-                            return original_build(*args, **kwargs)
-                        
-                        # Replace the build method
-                        builder.build = patched_build
-                        return builder
-                    
-                    # Apply the patch
-                    Application.builder = patched_builder
-                    logger.info("Successfully patched Application.builder to set concurrent_updates")
-                except Exception as e:
-                    logger.error(f"Error patching Application.builder: {e}")
-                
-                # IMPORTANT MODIFICATION: Create a modified version of Application.run_polling 
-                # that doesn't actually start polling
-                try:
-                    from telegram.ext import Application
-                    original_run_polling = Application.run_polling
-                    
-                    def no_op_run_polling(self, *args, **kwargs):
-                        """This version doesn't actually run polling, just returns self"""
-                        logger.info("Prevented double polling by intercepting run_polling call")
-                        return self
-                    
-                    # Temporarily replace Application.run_polling with our no-op version
-                    Application.run_polling = no_op_run_polling
-                    
-                    # Call the original main function to set up the application
-                    app = original_было_main()
-                    
-                    # Restore the original run_polling method
-                    Application.run_polling = original_run_polling
-                    
-                    logger.info("Bot application created successfully, prevented double polling")
-                    return app
-                except Exception as e:
-                    logger.error(f"Error intercepting run_polling: {e}")
-                    # If our interception fails, just call the original function
-                    return original_было_main()
+            # Pass the flag to mark that we've applied the patch
+            application_patched = True
+        
+        # Call the original main function with our patches applied
+        # Use a wrapper to apply additional patches dynamically
+        def patched_было_main():
+            # Set the asyncio policy to allow more concurrent operations
+            asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
             
-            # Apply the patch
-            было.main = patched_было_main
-            logger.info("Successfully patched было.main to prevent double polling")
-        except Exception as e:
-            logger.error(f"Error patching было.main: {e}")
-            logger.error(traceback.format_exc())
+            # Get the original application builder from было
+            original_builder = было.application_builder
+            
+            # Patch the builder to enable concurrent updates
+            def patched_builder():
+                # Get the original build method
+                original_build = original_builder().build
+                
+                def patched_build(*args, **kwargs):
+                    # Set concurrent_updates in kwargs
+                    kwargs['concurrent_updates'] = kwargs.get('concurrent_updates', 25)
+                    # Call original build with our enhanced parameters
+                    return original_build(*args, **kwargs)
+                
+                # Replace the build method with our patched version
+                builder = original_builder()
+                builder.build = patched_build
+                
+                return builder
+            
+            # Update the application_builder in было
+            было.application_builder = patched_builder
+            
+            # Replace polling method to no-op for safety (already handled by run_polling patch)
+            Application.run_polling = lambda self, *args, **kwargs: None
+            
+            # Create the application with our patches
+            app = original_builder().build()
+            
+            # Restore run_polling method for actual execution
+            Application.run_polling = patched_run_polling
+            
+            # Add concurrency support to the updater
+            if hasattr(app, 'updater') and app.updater:
+                app.updater._request_kwargs = app.updater._request_kwargs or {}
+                app.updater._request_kwargs.update({
+                    'connect_timeout': 15.0,
+                    'read_timeout': 15.0,
+                    'write_timeout': 15.0
+                })
+            
+            # Set up the token
+            token = "5849256613:AAH34MtjRPyBhrtQouFseQzVw5G9KJsX1WQ"
+            app.bot.token = token
+            
+            # Start the bot with concurrent updates
+            app.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"],
+                pool_timeout=10.0,
+                connect_timeout=15.0,
+                read_timeout=15.0,
+                write_timeout=15.0,
+                concurrent_updates=25
+            )
         
-        # Call the original main function to get the application instance
-        app = original_main()
-        if app:
-            logger.info("Bot application obtained, starting single polling instance")
-            # Now we can safely start polling - the original call was intercepted
-            if hasattr(app, 'running') and not app.running:
-                app.run_polling(drop_pending_updates=True)
-                logger.info("Bot polling started successfully")
-        else:
-            logger.error("Failed to get application instance from original_main")
+        # Call the patched version of the main function
+        patched_было_main()
         
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+        remove_lock_file()
     except Exception as e:
-        logger.error(f"Error in enhanced main: {e}")
+        logger.error(f"Error in main function: {e}")
         logger.error(traceback.format_exc())
-        sys.exit(1)
+        remove_lock_file()
 
 def main_direct():
     """

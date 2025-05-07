@@ -1215,7 +1215,15 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
 def format_teacher_schedule(schedule_data, teacher_name, start_date, end_date):
     """Форматирует расписание преподавателя"""
     try:
-        formatted = [f"Расписание {teacher_name}"]
+        # Заголовок с эмодзи и именем преподавателя
+        formatted = [f"📅 Расписание преподавателя {teacher_name}"]
+        
+        # Добавляем период расписания
+        formatted.append(f"Период: с {start_date} по {end_date}")
+        
+        # Если нет данных расписания, возвращаем сообщение
+        if not schedule_data:
+            return "\n".join(formatted) + "\n\nРасписание на указанный период не найдено"
         
         # Sort dates chronologically
         sorted_dates = sorted(schedule_data.keys(), 
@@ -1224,57 +1232,68 @@ def format_teacher_schedule(schedule_data, teacher_name, start_date, end_date):
         # Use the sorted dates when iterating
         for date_str in sorted_dates:
             day_schedule = schedule_data[date_str]
-            if not day_schedule:  # Пропускаем пустые дни
-                continue
-
+            
             date_obj = datetime.strptime(date_str, '%d.%m.%Y')
             weekday = days_ru[date_obj.weekday()]
-            # Add a green square emoji for visual separation
-            formatted.append(f"\n{weekday} {date_str}🟩")
-
+            week_type = get_week_type(date_str)
+            
+            # Добавляем день недели с датой и типом недели
+            formatted.append(f"\nРасписание на {weekday} {date_str} ({week_type} неделя):")
+            
+            # Если на этот день нет пар
+            if not day_schedule:
+                formatted.append("В этот день пар нет")
+                continue
+            
+            # Сортируем пары по номеру
             for lesson_num in sorted(day_schedule.keys(), key=lambda x: int(str(x).split('.')[0])):
                 lesson = day_schedule[lesson_num]
                 
-                # Base lesson number with emoji
+                # Базовый номер пары с эмодзи
                 lesson_str = f"{str(lesson_num)}️⃣"
                 
-                # Get subject text
+                # Получаем текст предмета
                 subject_text = lesson.get('subject', '')
+                # Удаляем маркер замены если он есть
                 if subject_text.startswith('✏️ '):
                     subject_text = subject_text[2:].strip()
                 
-                # Check if the subject contains subgroup markers
-                has_subgroup_marker = '1. ' in subject_text or '2. ' in subject_text
-                
-                # Remove the markers from the displayed text
+                # Удаляем маркеры подгрупп из текста
                 subject_text = subject_text.replace('1. ', '').replace('2. ', '').strip()
                 
-                # Determine subgroup information
+                # Информация о группе и подгруппе
+                group_name = lesson.get('group', '')
                 subgroup_info = ""
                 if lesson.get('subgroup') and not lesson.get('is_common'):
-                    subgroup_info = f" ({lesson['subgroup']}) подгруппа"
+                    subgroup_info = f", {lesson['subgroup']}-я подгруппа"
                 
-                # Format group name - lowercase for consistent formatting
-                group_name = lesson.get('group', '').lower()
-                
-                # Handle cancelled lessons
+                # Обрабатываем отмененные пары
                 if lesson.get('is_cancelled') or subject_text.startswith('❌'):
-                    lesson_str += f"❌ Пара отменена 🤓 {group_name}{subgroup_info}"
+                    lesson_str += " ❌ Пара отменена"
+                    if group_name:
+                        lesson_str += f" 🚪 [{group_name}{subgroup_info}]"
                 else:
-                    # Add emoji for replacements
-                    emoji = "✏️ " if lesson.get('is_replacement') else ""
+                    # Добавляем маркер замены если нужно
+                    if lesson.get('is_replacement'):
+                        lesson_str += " ✏️"
                     
-                    # Add the subject
-                    lesson_str += f"({subject_text}) 🤓 {group_name}{subgroup_info}"
+                    # Добавляем тип пары и название предмета
+                    lesson_str += f" ({subject_text})"
                     
-                    # Add room information
+                    # Добавляем аудиторию
                     room = lesson.get('room')
                     if room and room not in ['None', None, '']:
                         lesson_str += f" 🚪{room}"
+                    
+                    # Добавляем группу и подгруппу
+                    if group_name:
+                        # Преобразуем название группы к единому формату
+                        group_name = group_name[0].upper() + group_name[1:] if group_name else ""
+                        lesson_str += f" [{group_name}{subgroup_info}]"
                 
                 formatted.append(lesson_str)
 
-        return "\n".join(formatted) if len(formatted) > 1 else "Расписание на указанный период не найдено"
+        return "\n".join(formatted)
 
     except Exception as e:
         logger.error(f"Ошибка при форматировании расписания преподавателя: {str(e)}")
@@ -2404,29 +2423,33 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         for file in os.listdir("downloaded_files"):
             if file.endswith(".xlsx") and '-' in file:
                 try:
-                    dates = file.replace('.xlsx', '').split('-')
-                    if len(dates) == 2:
-                        # Пробуем разные форматы даты
-                        try:
-                            # Сначала пробуем формат с двузначным годом
-                            start_date = datetime.strptime(dates[0], '%d.%m.%y')
-                            end_date = datetime.strptime(dates[1], '%d.%m.%y')
-                        except ValueError:
+                    # Используем регулярное выражение для проверки формата даты
+                    import re
+                    date_pattern = re.compile(r'^(\d{2}\.\d{2}\.\d{2,4})-(\d{2}\.\d{2}\.\d{2,4})\.xlsx$')
+                    match = date_pattern.match(file)
+                    
+                    if match:
+                        # Если файл соответствует формату даты
+                        dates = match.groups()
+                        if len(dates) == 2:
+                            # Пробуем разные форматы даты
                             try:
-                                # Затем пробуем формат с четырехзначным годом
-                                start_date = datetime.strptime(dates[0], '%d.%m.%Y')
-                                end_date = datetime.strptime(dates[1], '%d.%m.%Y')
+                                # Сначала пробуем формат с двузначным годом
+                                start_date = datetime.strptime(dates[0], '%d.%m.%y')
+                                end_date = datetime.strptime(dates[1], '%d.%m.%y')
                             except ValueError:
-                                logger.warning(f"Не удалось распознать формат даты в файле: {file}")
-                                continue
-                        
-                        results.append((start_date, end_date, file))
+                                try:
+                                    # Затем пробуем формат с четырехзначным годом
+                                    start_date = datetime.strptime(dates[0], '%d.%m.%Y')
+                                    end_date = datetime.strptime(dates[1], '%d.%m.%Y')
+                                except ValueError:
+                                    logger.warning(f"Не удалось распознать формат даты в файле: {file}")
+                                    continue
+                            
+                            results.append((start_date, end_date, file))
                 except Exception as e:
                     logger.error(f"Ошибка при обработке файла {file}: {str(e)}")
                     continue
-
-        # Remove debug logs for files
-        # logger.info(f"Найдены файлы замен: {[r[2] for r in results]}")
 
         # Находим самую раннюю и самую позднюю даты для определения диапазона
         latest_end_date = None
@@ -2435,8 +2458,6 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         for result in results:
             if result:
                 start_date, end_date, file_name = result
-                # Remove file processing logs
-                # logger.info(f"Обработка файла: {file_name}, даты: {start_date} - {end_date}")
                 if not latest_end_date or end_date > latest_end_date:
                     latest_end_date = end_date
                 if not earliest_start_date or start_date < earliest_start_date:
@@ -2445,62 +2466,8 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Устанавливаем earliest_start_date как максимум между сегодняшней датой и самой ранней датой из файлов
         earliest_start_date = max(today, earliest_start_date) if earliest_start_date else today
         
-        # ИЗМЕНЕНИЯ: Собираем только даты, которые действительно относятся к файлам с заменами
-        dates_to_check = set()
-        # Перебираем все возможные даты между earliest_start_date и latest_end_date
-        if earliest_start_date and latest_end_date:
-            current_date = earliest_start_date
-            while current_date <= latest_end_date:
-                if current_date.weekday() != 6:  # Пропускаем воскресенье
-                    # Проверяем, входит ли текущая дата в диапазон хотя бы одного файла с заменами
-                    is_date_in_replacement = False
-                    for start_date, end_date, _ in results:
-                        if start_date <= current_date <= end_date:
-                            is_date_in_replacement = True
-                            break
-                    
-                    # Добавляем дату в список только если она входит в диапазон замен
-                    if is_date_in_replacement:
-                        dates_to_check.add(current_date.strftime('%d.%m.%Y'))
-                
-                current_date += timedelta(days=1)
-
-        # Проверяем кэш
-        start_date_str = earliest_start_date.strftime('%d.%m.%Y') if earliest_start_date else today.strftime('%d.%m.%Y')
-        end_date_str = latest_end_date.strftime('%d.%m.%Y') if latest_end_date else today.strftime('%d.%m.%Y')
-        
-        # Keep this log as it's important for debugging date filtering issues
-        logger.info(f"Даты для проверки: {sorted(dates_to_check)}")
-        
-        cached_schedule = await run_blocking(
-            get_cached_teacher_schedule,
-            text,
-            start_date_str,
-            end_date_str
-        )
-        
-        if cached_schedule:
-            # Keep this log as it's important for cache debugging
-            logger.info(f"Найден актуальный кэш для преподавателя {text}")
-            try:
-                # Safely delete the wait message if it exists
-                await wait_message.delete()
-            except Exception as e:
-                logger.warning(f"Could not delete wait message: {e}")
-                # Continue execution even if message deletion fails
-            
-            # Создаем клавиатуру для ввода другого преподавателя
-            keyboard = ReplyKeyboardMarkup([
-                ['Ввести другого преподавателя'],
-                ['Расписание звонков'],
-                ['Отмена']
-            ], resize_keyboard=True)
-            
-            await update.message.reply_text(cached_schedule, reply_markup=keyboard)
-            return CHOOSE_ACTION
-
-        # Если нет в кэше, получаем расписание
-        if not dates_to_check:
+        # Если не нашли файлы с заменами, показываем ошибку
+        if not results:
             try:
                 await wait_message.delete()
             except Exception as e:
@@ -2512,79 +2479,39 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             
             await update.message.reply_text("Не найдены актуальные файлы замен.")
             return ConversationHandler.END
-
-        # Запускаем параллельную обработку дат
-        date_tasks = [process_date(context, text, date_str) for date_str in sorted(dates_to_check)]
-        all_days_info = await asyncio.gather(*date_tasks)
-
+            
+        # Форматируем даты для вызова оптимизированной функции
+        start_date_str = earliest_start_date.strftime('%d.%m.%Y') if earliest_start_date else today.strftime('%d.%m.%Y')
+        end_date_str = latest_end_date.strftime('%d.%m.%Y') if latest_end_date else today.strftime('%d.%m.%Y')
+        
+        # Используем оптимизированную функцию get_teacher_schedule, которая теперь использует индекс
+        logger.info(f"Запрашиваем расписание для {text} с {start_date_str} по {end_date_str}")
+        schedule_result = await get_teacher_schedule(text, start_date_str, end_date_str)
+        
         try:
             await wait_message.delete()
         except Exception as e:
             logger.warning(f"Could not delete wait message: {e}")
 
-        # Форматируем результат с использованием правильной начальной даты
-        formatted = [f"📅 Расписание преподавателя {text}"]
-        formatted.append(
-            f"Период: с {earliest_start_date.strftime('%d.%m.%Y')} по {latest_end_date.strftime('%d.%m.%Y')}")
-
-        # Сортируем дни по дате
-        days_with_dates = []
-        for day_info in all_days_info:
-            if day_info and "Расписание на " in day_info:
-                try:
-                    # Извлекаем дату из строки "Расписание на день DD.MM.YYYY"
-                    date_str = re.search(r'(\d{2}\.\d{2}\.\d{4})', day_info).group(1)
-                    date_obj = datetime.strptime(date_str, '%d.%m.%Y')
-                    days_with_dates.append((date_obj, day_info))
-                except (AttributeError, ValueError) as e:
-                    logger.error(f"Ошибка при извлечении даты из строки: {e}")
-                    days_with_dates.append((datetime.max, day_info))  # Если не удалось извлечь дату, помещаем в конец
-        
-        # Сортируем дни по дате (от ранней к поздней)
-        days_with_dates.sort(key=lambda x: x[0])
-        
-        has_schedule = False
-        # Используем отсортированный список для добавления дней в результат
-        for _, day_info in days_with_dates:
-            has_schedule = True
-            formatted.append(day_info)
-
-        # Создаем клавиатуру с нужными кнопками
+        # Создаем клавиатуру для ввода другого преподавателя
         keyboard = ReplyKeyboardMarkup([
             ['Ввести другого преподавателя'],
             ['Расписание звонков'],
             ['Отмена']
         ], resize_keyboard=True)
-
-        result_message = "\n".join(formatted) if has_schedule else f"Расписание для преподавателя {text} на период с {earliest_start_date.strftime('%d.%m.%Y')} по {latest_end_date.strftime('%d.%m.%Y')} не найдено"
         
-        # Кэшируем результат
-        await run_blocking(
-            cache_teacher_schedule,
-            text,
-            start_date_str,
-            end_date_str,
-            result_message
-        )
-        
-        await update.message.reply_text(result_message, reply_markup=keyboard)
+        await update.message.reply_text(schedule_result, reply_markup=keyboard)
         return CHOOSE_ACTION
-
+    
     except Exception as e:
-        logger.error(f"Ошибка при обработке ввода имени преподавателя: {str(e)}")
+        logger.error(f"Ошибка в enter_teacher: {str(e)}")
         logger.error(traceback.format_exc())
         
-        # Attempt to retrieve the wait message from context and delete it
-        try:
-            if 'wait_message' in locals():
-                await wait_message.delete()
-        except Exception as delete_error:
-            logger.warning(f"Failed to delete wait message: {delete_error}")
-            
         await update.message.reply_text(
-            "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз."
+            "Произошла ошибка при обработке запроса. Проверьте меню.",
+            reply_markup=ReplyKeyboardMarkup([['Отмена']], resize_keyboard=True)
         )
-        return ConversationHandler.END
+        return CHOOSE_ACTION
 
 async def enter_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Обработка ввода номера группы"""

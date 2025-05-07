@@ -221,8 +221,8 @@ def is_file_applicable_for_date(file_name, date_str):
                     except ValueError:
                         # If we can't parse the dates, assume not applicable
                         result = False
-                    
-                    # Check if target date is in range
+                
+                # Check if target date is in range
                 if not result and 'start_date' in locals() and 'end_date' in locals():
                     result = start_date <= target_date <= end_date
         else:
@@ -309,13 +309,22 @@ async def get_teacher_schedule_optimized(teacher_name: str, start_date: str, end
         # Process each date
         tasks = []
         file_date_pairs = []
-
+        
         current_date = start_date_obj
         while current_date <= end_date_obj:
             if current_date.weekday() != 6:  # Skip Sundays
                 date_str = current_date.strftime('%d.%m.%Y')
                 
-                # Process all dates regardless of whether they have replacement files
+                # Check if the current date is covered by any replacement file
+                is_date_in_replacements = False
+                for start_file_date, end_file_date in replacement_date_ranges:
+                    if start_file_date <= current_date <= end_file_date:
+                        is_date_in_replacements = True
+                        break
+                
+                # Process all dates in the requested range
+                if True:
+                    # Filter files applicable for this date
                 applicable_files = []
                 
                 # Regular schedule files are always applicable
@@ -763,7 +772,7 @@ async def get_teacher_schedule_with_index(teacher_name: str, start_date: str, en
                             # Сначала пробуем формат с двузначным годом
                             start_file_date = datetime.strptime(dates[0], '%d.%m.%y').date()
                             end_file_date = datetime.strptime(dates[1], '%d.%m.%y').date()
-                        except ValueError:
+                    except ValueError:
                             try:
                                 # Затем пробуем формат с четырехзначным годом
                                 start_file_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
@@ -809,8 +818,8 @@ async def get_teacher_schedule_with_index(teacher_name: str, start_date: str, en
                             is_date_in_replacement = True
                             break
                     
-                    # Добавляем дату в список только если она входит в диапазон замен
-                    if is_date_in_replacement:
+                    # Process all dates in the requested range
+                    if True:
                         dates_to_check.add(current_date.strftime('%d.%m.%Y'))
                 
                 current_date += timedelta(days=1)
