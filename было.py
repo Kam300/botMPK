@@ -47,7 +47,7 @@ import httpx  # Add this import
 
 
 
-TELEGRAM_TOKEN="5820204062:AAFTribI0L_XW5CHr8APPx0JhSM-q3jFnOA"
+TELEGRAM_TOKEN="5849256613:AAH34MtjRPyBhrtQouFseQzVw5G9KJsX1WQ"
 file_access_semaphore = asyncio.Semaphore(3)
 # ID администраторов, которые могут очищать кэш
 # Чтобы узнать свой ID, отправьте боту команду /clear_cache и посмотрите ID в ответном сообщении
@@ -2405,12 +2405,12 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                     logger.error(f"Ошибка при обработке файла {file}: {str(e)}")
                     continue
 
-        dates_to_check = set()
-        latest_end_date = None
-        earliest_start_date = None
-
         # Выводим найденные файлы для отладки
         logger.info(f"Найдены файлы замен: {[r[2] for r in results]}")
+
+        # Находим самую раннюю и самую позднюю даты для определения диапазона
+        latest_end_date = None
+        earliest_start_date = None
 
         for result in results:
             if result:
@@ -2424,18 +2424,31 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Устанавливаем earliest_start_date как максимум между сегодняшней датой и самой ранней датой из файлов
         earliest_start_date = max(today, earliest_start_date) if earliest_start_date else today
         
-        # Заполняем даты для проверки
+        # ИЗМЕНЕНИЯ: Собираем только даты, которые действительно относятся к файлам с заменами
         dates_to_check = set()
-        current_date = earliest_start_date
-        if latest_end_date:
+        # Перебираем все возможные даты между earliest_start_date и latest_end_date
+        if earliest_start_date and latest_end_date:
+            current_date = earliest_start_date
             while current_date <= latest_end_date:
                 if current_date.weekday() != 6:  # Пропускаем воскресенье
-                    dates_to_check.add(current_date.strftime('%d.%m.%Y'))
+                    # Проверяем, входит ли текущая дата в диапазон хотя бы одного файла с заменами
+                    is_date_in_replacement = False
+                    for start_date, end_date, _ in results:
+                        if start_date <= current_date <= end_date:
+                            is_date_in_replacement = True
+                            break
+                    
+                    # Добавляем дату в список только если она входит в диапазон замен
+                    if is_date_in_replacement:
+                        dates_to_check.add(current_date.strftime('%d.%m.%Y'))
+                
                 current_date += timedelta(days=1)
 
         # Проверяем кэш
         start_date_str = earliest_start_date.strftime('%d.%m.%Y') if earliest_start_date else today.strftime('%d.%m.%Y')
         end_date_str = latest_end_date.strftime('%d.%m.%Y') if latest_end_date else today.strftime('%d.%m.%Y')
+        
+        logger.info(f"Даты для проверки: {sorted(dates_to_check)}")
         
         cached_schedule = await run_blocking(
             get_cached_teacher_schedule,

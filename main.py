@@ -139,7 +139,7 @@ def patch_notification_system():
                     chat_ids = notification_data.get("chat_ids", [])
                     
                     if message and chat_ids:
-                        bot = Bot(token="5820204062:AAFTribI0L_XW5CHr8APPx0JhSM-q3jFnOA")
+                        bot = Bot(token="5849256613:AAH34MtjRPyBhrtQouFseQzVw5G9KJsX1WQ")
                         
                         for chat_id in chat_ids:
                             try:
@@ -225,6 +225,8 @@ def main():
         
         # Очистка кэша при запуске с указанием причины
         selective_cache_clear(reason="startup")
+        # Специальная очистка кэша для расписаний преподавателей
+        selective_cache_clear(pattern="teacher_*", reason="teacher schedule date fix")
         
         # Инициализация кэша
         init_cache()

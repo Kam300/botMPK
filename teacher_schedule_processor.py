@@ -242,6 +242,29 @@ async def get_teacher_schedule_optimized(teacher_name: str, start_date: str, end
         # Start preloading but don't wait for completion
         preload_task = asyncio.create_task(asyncio.gather(*preload_tasks))
         
+        # Get date ranges from replacement files
+        replacement_date_ranges = []
+        for file in replacement_files:
+            try:
+                dates = file.replace('.xlsx', '').split('-')
+                if len(dates) == 2:
+                    # Try different date formats
+                    try:
+                        # Try short year format first (DD.MM.YY)
+                        start_file_date = datetime.strptime(dates[0], '%d.%m.%y').date()
+                        end_file_date = datetime.strptime(dates[1], '%d.%m.%y').date()
+                    except ValueError:
+                        try:
+                            # Try with full year format (DD.MM.YYYY)
+                            start_file_date = datetime.strptime(dates[0], '%d.%m.%Y').date()
+                            end_file_date = datetime.strptime(dates[1], '%d.%m.%Y').date()
+                        except ValueError:
+                            continue
+                    
+                    replacement_date_ranges.append((start_file_date, end_file_date))
+            except Exception as e:
+                logger.error(f"Error parsing date range for file {file}: {e}")
+        
         # Process each date
         tasks = []
         file_date_pairs = []
@@ -251,23 +274,32 @@ async def get_teacher_schedule_optimized(teacher_name: str, start_date: str, end
             if current_date.weekday() != 6:  # Skip Sundays
                 date_str = current_date.strftime('%d.%m.%Y')
                 
-                # Filter files applicable for this date - do this more efficiently
-                applicable_files = []
+                # Check if the current date is covered by any replacement file
+                is_date_in_replacements = False
+                for start_file_date, end_file_date in replacement_date_ranges:
+                    if start_file_date <= current_date <= end_file_date:
+                        is_date_in_replacements = True
+                        break
                 
-                # Regular schedule files are always applicable
-                for file in regular_files:
-                    applicable_files.append(file)
-                
-                # Process applicable replacement files
-                for file in replacement_files:
-                    if await run_blocking(is_file_applicable_for_date, file, date_str):
+                # Only process dates that are covered by at least one replacement file
+                if is_date_in_replacements:
+                    # Filter files applicable for this date
+                    applicable_files = []
+                    
+                    # Regular schedule files are always applicable
+                    for file in regular_files:
                         applicable_files.append(file)
-                
-                # Process each applicable file
-                for file in applicable_files:
-                    file_path = os.path.join("downloaded_files", file)
-                    tasks.append(process_excel_file_for_teacher(file_path, date_str, teacher_name))
-                    file_date_pairs.append((file, date_str))
+                    
+                    # Process applicable replacement files
+                    for file in replacement_files:
+                        if await run_blocking(is_file_applicable_for_date, file, date_str):
+                            applicable_files.append(file)
+                    
+                    # Process each applicable file
+                    for file in applicable_files:
+                        file_path = os.path.join("downloaded_files", file)
+                        tasks.append(process_excel_file_for_teacher(file_path, date_str, teacher_name))
+                        file_date_pairs.append((file, date_str))
             
             current_date += timedelta(days=1)
 
