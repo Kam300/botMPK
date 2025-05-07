@@ -342,30 +342,34 @@ def is_theory_lesson(subject):
 def parse_teacher_schedule(schedule_file, date_str, teacher_name):
     """Парсит расписание для преподавателя"""
     try:
-        logger.info(f"Начало парсинга расписания для преподавателя {teacher_name} на дату {date_str}")
-        logger.info(f"Обрабатываемый файл: {schedule_file}")
+        # Remove general info logs
+        # logger.info(f"Начало парсинга расписания для преподавателя {teacher_name} на дату {date_str}")
+        # logger.info(f"Обрабатываемый файл: {schedule_file}")
 
         # Функция для проверки, является ли текст отменой
         def is_cancellation_text(text):
             if not text:
                 return True
                 
-            # Сначала логируем исходный текст для отладки
-            logger.info(f"Проверка текста на отмену: '{text}'")
+            # Remove debug log
+            # logger.info(f"Проверка текста на отмену: '{text}'")
             
             text = text.strip()
             
             # Проверка на шаблон с дефисами разной длины
             if any(pattern in text.replace(' ', '') for pattern in ['----', '-----', '------', '-------', '--------', '---------', '----------', '-----------', '------------']):
+                # Keep cancellation logs
                 logger.info(f"Текст '{text}' является отменой (содержит последовательность дефисов)")
                 return True
             
             # Прямая проверка на шаблон "1. ------------" или "1.------------"
             if (text.startswith('1. ') or text.startswith('1.')) and set(text[2:].strip('- ')).issubset({'-', ' '}):
+                # Keep cancellation logs
                 logger.info(f"Текст '{text}' является отменой (специальный шаблон '1. ------------')")
                 return True
             
             if text == '------------' or text == '-' or text == '---' or text == '----':
+                # Keep cancellation logs
                 logger.info(f"Текст '{text}' является отменой (простой шаблон)")
                 return True
                 
@@ -377,7 +381,8 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
             replacement_files = [f for f in os.listdir("downloaded_files") 
                               if f.endswith('.xlsx') and '-' in f]
             
-            logger.info(f"Найдены файлы замен для проверки: {replacement_files}")
+            # Remove general info log
+            # logger.info(f"Найдены файлы замен для проверки: {replacement_files}")
             
             for replacement_file in replacement_files:
                 try:
@@ -404,10 +409,13 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
                     
                     check_date = datetime.strptime(date_str, '%d.%m.%Y').date()
                     
-                    logger.info(f"Проверка файла {replacement_file}: Искомая дата {check_date}, в файле {start_date} - {end_date}")
+                    # Remove file check log
+                    # logger.info(f"Проверка файла {replacement_file}: Искомая дата {check_date}, в файле {start_date} - {end_date}")
 
                     if start_date <= check_date <= end_date:
-                        logger.info(f"Найден подходящий файл замен: {replacement_file} для даты {date_str}")
+                        # Remove found file log
+                        # logger.info(f"Найден подходящий файл замен: {replacement_file} для даты {date_str}")
+                        
                         # Загружаем файл замен
                         wb_replacements = openpyxl.load_workbook(replacement_path)
                         sheet_replacements = wb_replacements.active
@@ -448,6 +456,7 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
                                 
                                 # Проверяем, упоминается ли преподаватель в тексте замены
                                 if teacher_name.lower() in replacement_text.lower():
+                                    # Keep replacement found log
                                     logger.info(f"Найдена замена с упоминанием преподавателя {teacher_name} в группе {group_name}, пара {lesson_num}: {replacement_text}")
                                     
                                     # Определяем подгруппу
@@ -529,6 +538,7 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
                                             'is_replacement': True,
                                             'emoji': '✏️'
                                         }
+                                        # Keep added lesson log
                                         logger.info(f"Добавлена новая пара {lesson_num} для преподавателя {teacher_name}: {subject}, аудитория {room}, подгруппа {subgroup}")
                 
                 except Exception as e:
@@ -545,7 +555,8 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
 
         # Получаем название группы из первой строки
         group_name = str(sheet.cell(row=1, column=1).value or '').split('группы ')[-1].strip()
-        logger.info(f"Найдена группа: {group_name}")
+        # Remove group found log
+        # logger.info(f"Найдена группа: {group_name}")
 
         # Определяем тип недели
         is_even_week = get_week_type(date_str) == 'четная'
@@ -564,7 +575,8 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
             new_lessons = find_new_lessons_in_replacements()
             return new_lessons
 
-        logger.info(f"Найдена начальная строка: {current_start_row}, колонка дня: {day_col}")
+        # Remove found row/column log
+        # logger.info(f"Найдена начальная строка: {current_start_row}, колонка дня: {day_col}")
 
         # Сначала собираем все пары преподавателя в обычном расписании
         teacher_lessons = {}
@@ -601,6 +613,8 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
                         'is_common': is_theory_lesson(subject_first),
                         'emoji': None  # Добавляем поле для эмодзи, но оставляем его пустым для обычных пар
                     }
+                    # Add log for found lesson in original schedule
+                    logger.info(f"Найдена пара №{lesson_num} преподавателя {teacher_name} в группе {group_name}: предмет '{subject_first}', аудитория {room_first}")
                 
                 if teacher_second and teacher_name.lower() in str(teacher_second).lower():
                     teacher_lessons[lesson_num] = {
@@ -611,13 +625,17 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
                         'is_common': is_theory_lesson(subject_second),
                         'emoji': None  # Добавляем поле для эмодзи, но оставляем его пустым для обычных пар
                     }
+                    # Add log for found lesson in original schedule
+                    logger.info(f"Найдена пара №{lesson_num} преподавателя {teacher_name} в группе {group_name}: предмет '{subject_second}', аудитория {room_second}")
 
             except ValueError as e:
                 logger.error(f"Ошибка при обработке строки {current_row}: {str(e)}")
 
             current_row += 2
 
-        logger.info(f"Найденные пары преподавателя в обычном расписании: {teacher_lessons}")
+        # Keep summary of lessons found, but make it more concise
+        if teacher_lessons:
+            logger.info(f"Найдено {len(teacher_lessons)} пар преподавателя {teacher_name} в группе {group_name}")
         
         # Теперь обрабатываем обычное расписание
         current_row = current_start_row + 1
@@ -692,7 +710,8 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
                                         else:
                                             replacement_applied.add(lesson_num)
                                     
-                                    logger.info(f"Проверка замены для пары {lesson_num} в группе {group_name}: '{replacement}'")
+                                    # Remove general replacement check log
+                                    # logger.info(f"Проверка замены для пары {lesson_num} в группе {group_name}: '{replacement}'")
                                     
                                     # Проверяем, есть ли у преподавателя пара в это время
                                     if isinstance(lesson_num, (int, float)):
@@ -701,6 +720,7 @@ def parse_teacher_schedule(schedule_file, date_str, teacher_name):
                                         # Проверяем, упоминается ли преподаватель в замене
                                         if replacement and teacher_name.lower() in str(replacement).lower():
                                             replacement_text = str(replacement)
+                                            # Keep log for replacements with teacher
                                             logger.info(f"Обработка замены с упоминанием преподавателя {teacher_name}: '{replacement_text}'")
                                             
                                             # Специальная проверка на отмену по шаблону "1. ------------"
@@ -2405,8 +2425,8 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                     logger.error(f"Ошибка при обработке файла {file}: {str(e)}")
                     continue
 
-        # Выводим найденные файлы для отладки
-        logger.info(f"Найдены файлы замен: {[r[2] for r in results]}")
+        # Remove debug logs for files
+        # logger.info(f"Найдены файлы замен: {[r[2] for r in results]}")
 
         # Находим самую раннюю и самую позднюю даты для определения диапазона
         latest_end_date = None
@@ -2415,7 +2435,8 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         for result in results:
             if result:
                 start_date, end_date, file_name = result
-                logger.info(f"Обработка файла: {file_name}, даты: {start_date} - {end_date}")
+                # Remove file processing logs
+                # logger.info(f"Обработка файла: {file_name}, даты: {start_date} - {end_date}")
                 if not latest_end_date or end_date > latest_end_date:
                     latest_end_date = end_date
                 if not earliest_start_date or start_date < earliest_start_date:
@@ -2448,6 +2469,7 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         start_date_str = earliest_start_date.strftime('%d.%m.%Y') if earliest_start_date else today.strftime('%d.%m.%Y')
         end_date_str = latest_end_date.strftime('%d.%m.%Y') if latest_end_date else today.strftime('%d.%m.%Y')
         
+        # Keep this log as it's important for debugging date filtering issues
         logger.info(f"Даты для проверки: {sorted(dates_to_check)}")
         
         cached_schedule = await run_blocking(
@@ -2458,6 +2480,7 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         
         if cached_schedule:
+            # Keep this log as it's important for cache debugging
             logger.info(f"Найден актуальный кэш для преподавателя {text}")
             try:
                 # Safely delete the wait message if it exists
@@ -3523,16 +3546,16 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text.strip()
 
     # Check if it's a menu command or button press
-    if text in ["👥 Расписание группы", "🎓 Расписание преподавателя", "⏰ Расписание звонков", "🚪 Расписание кабинета", "Отмена","Подписаться на замены", "Отписаться от замен"]:
+    if text in ["👥 Расписание группы", "🎓 Расписание преподавателя", "⏰ Расписание звонков", "🚪 Расписание кабинета", "Отмена", "Подписаться на замены", "Отписаться от замен"]:
         return await choose_action(update, context)
     elif text in ["Первая подгруппа", "Вторая подгруппа"]:
         return await subgroup_choice(update, context)
-    elif text in ["Ввести другого преподавателя"]:
+    elif text == "Ввести другого преподавателя":
         keyboard = ReplyKeyboardMarkup([
             ['Отмена']
         ], resize_keyboard=True)
         await update.message.reply_text(
-            "Введите фамилию преподавателя:",
+            "Введите Фамилия И.О. преподавателя:",
             reply_markup=keyboard
         )
         return ENTER_TEACHER

@@ -134,7 +134,7 @@ def patch_notification_system():
                     logger.info(f"Found notifications file: {notification_file}")
                     with open(notification_file, "r", encoding='utf-8') as f:
                         notification_data = json.load(f)
-                    
+                    у
                     message = notification_data.get("message", "")
                     chat_ids = notification_data.get("chat_ids", [])
                     
