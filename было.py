@@ -2038,7 +2038,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         
     keyboard = [
         ['⏰ Расписание звонков','👥 Расписание группы'],
-        ['🎓 Расписание преподавателя','🚪 Расписание кабинета'],
+        ['🎓 Расписание преподавателя(бета)','🚪 Расписание кабинета(бета)'],
         ['Подписаться на замены', 'Отписаться от замен']
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -2078,7 +2078,7 @@ async def enter_classroom(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if classroom == "Отмена":
         keyboard = [
             ['⏰ Расписание звонков','👥 Расписание группы'],
-            ['🎓 Расписание преподавателя','🚪 Расписание кабинета'],
+            ['🎓 Расписание преподавателя(бета)','🚪 Расписание кабинета(бета)'],
             ['Подписаться на замены', 'Отписаться от замен']
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -2206,7 +2206,7 @@ async def choose_date_for_classroom(update: Update, context: ContextTypes.DEFAUL
     if selected_date_display == "Отмена":
         keyboard = [
             ['⏰ Расписание звонков','👥 Расписание группы'],
-            ['🎓 Расписание преподавателя','🚪 Расписание кабинета'],
+            ['🎓 Расписание преподавателя(бета)','🚪 Расписание кабинета(бета)'],
             ['Подписаться на замены', 'Отписаться от замен']
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -2430,7 +2430,7 @@ async def enter_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if text == "Отмена":
             keyboard = ReplyKeyboardMarkup([
                 [KeyboardButton("⏰ Расписание звонков"), KeyboardButton("👥 Расписание группы")],
-                [KeyboardButton("🎓 Расписание преподавателя"), KeyboardButton("🚪 Расписание кабинета")],
+                [KeyboardButton("🎓 Расписание преподавателя(бета)"), KeyboardButton("🚪 Расписание кабинета(бета)")],
                 [KeyboardButton("Подписаться на замены"), KeyboardButton("Отписаться от замен")]
             ], resize_keyboard=True)
             await update.message.reply_text(
@@ -2561,7 +2561,7 @@ async def enter_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if update.message.text == "Отмена":
         keyboard = ReplyKeyboardMarkup([
             [KeyboardButton("⏰ Расписание звонков"), KeyboardButton("👥 Расписание группы")],
-            [KeyboardButton("🎓 Расписание преподавателя"), KeyboardButton("🚪 Расписание кабинета")],
+            [KeyboardButton("🎓 Расписание преподавателя(бета)"), KeyboardButton("🚪 Расписание кабинета(бета)")],
             [KeyboardButton("Подписаться на замены"), KeyboardButton("Отписаться от замен")]
         ], resize_keyboard=True)
         await update.message.reply_text(
@@ -2607,7 +2607,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update and update.effective_message:
         keyboard = ReplyKeyboardMarkup([
             [KeyboardButton("⏰ Расписание звонков"), KeyboardButton("👥 Расписание группы")],
-            [KeyboardButton("🎓 Расписание преподавателя") , KeyboardButton("🚪 Расписание кабинета")],
+            [KeyboardButton("🎓 Расписание преподавателя(бета)") , KeyboardButton("🚪 Расписание кабинета(бета)")],
             [KeyboardButton("Подписаться на замены"), KeyboardButton("Отписаться от замен")]
         ], resize_keyboard=True)
         await update.effective_message.reply_text("Операция отменена. Выберите действие заново:", reply_markup=keyboard)
@@ -2622,7 +2622,7 @@ async def set_commands(application: Application):
         BotCommand(command="help", description="Показать помощь"),
         BotCommand(command="cancel", description="Отменить текущую операцию"),
         BotCommand(command="clear_cache", description="Очистить кэш (только для администраторов)"),
-        BotCommand("classroom", "Расписание кабинета (например, /classroom А403 02.05.2023)"),
+        BotCommand("classroom", "Расписание кабинета(бета) (например, /classroom А403 02.05.2023)"),
         BotCommand(command="myid", description="Узнать свой ID пользователя")
     ]
     await application.bot.set_my_commands(commands)
@@ -3033,7 +3033,7 @@ async def group_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if group == "Отмена":
         keyboard = ReplyKeyboardMarkup([
                 [KeyboardButton("⏰ Расписание звонков"), KeyboardButton("👥 Расписание группы")],
-                [KeyboardButton("🎓 Расписание преподавателя"), KeyboardButton("🚪 Расписание кабинета")],
+                [KeyboardButton("🎓 Расписание преподавателя(бета)"), KeyboardButton("🚪 Расписание кабинета(бета)")],
                 [KeyboardButton("Подписаться на замены"), KeyboardButton("Отписаться от замен")]
             ], resize_keyboard=True)
         await update.message.reply_text(
@@ -3100,7 +3100,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     keyboard = ReplyKeyboardMarkup([
         [KeyboardButton("⏰ Расписание звонков"), KeyboardButton("👥 Расписание группы")],
-        [KeyboardButton("🎓 Расписание преподавателя"), KeyboardButton("🚪 Расписание кабинета")],
+        [KeyboardButton("🎓 Расписание преподавателя(бета)"), KeyboardButton("🚪 Расписание кабинета(бета)")],
         [KeyboardButton("Подписаться на замены"), KeyboardButton("Отписаться от замен")]
     ], resize_keyboard=True)
 
@@ -3283,7 +3283,7 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         return ENTER_GROUP
     
-    elif choice == "🚪 Расписание кабинета" or choice == "Расписание кабинета":
+    elif choice == "🚪 Расписание кабинета(бета)" or choice == "Расписание кабинета(бета)":
         keyboard = ReplyKeyboardMarkup([
             ['Отмена']
         ], resize_keyboard=True)
@@ -3296,7 +3296,7 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     elif choice == "Отмена":
         return await cancel(update, context)
 
-    elif choice == "🎓 Расписание преподавателя" or choice == "Расписание преподавателя":
+    elif choice == "🎓 Расписание преподавателя(бета)" or choice == "Расписание преподавателя(бета)":
         keyboard = ReplyKeyboardMarkup([
             ['Отмена']
         ], resize_keyboard=True)
@@ -3317,7 +3317,7 @@ async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     else:
         keyboard = ReplyKeyboardMarkup([
             [KeyboardButton("⏰ Расписание звонков"), KeyboardButton("👥 Расписание группы")],
-            [KeyboardButton("🎓 Расписание преподавателя"), KeyboardButton("🚪 Расписание кабинета")],
+            [KeyboardButton("🎓 Расписание преподавателя(бета)"), KeyboardButton("🚪 Расписание кабинета(бета)")],
             [KeyboardButton("Подписаться на замены"), KeyboardButton("Отписаться от замен")]
         ], resize_keyboard=True)
         await update.message.reply_text("Пожалуйста, выберите одну из доступных опций.", reply_markup=keyboard)
@@ -3558,7 +3558,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text.strip()
 
     # Check if it's a menu command or button press
-    if text in ["👥 Расписание группы", "🎓 Расписание преподавателя", "⏰ Расписание звонков", "🚪 Расписание кабинета", "Отмена", "Подписаться на замены", "Отписаться от замен"]:
+    if text in ["👥 Расписание группы", "🎓 Расписание преподавателя(бета)", "⏰ Расписание звонков", "🚪 Расписание кабинета(бета)", "Отмена", "Подписаться на замены", "Отписаться от замен"]:
         return await choose_action(update, context)
     elif text in ["Первая подгруппа", "Вторая подгруппа"]:
         return await subgroup_choice(update, context)
@@ -3575,7 +3575,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Show main menu with all options
         keyboard = ReplyKeyboardMarkup([
             [KeyboardButton("⏰ Расписание звонков"), KeyboardButton("👥 Расписание группы")],
-            [KeyboardButton("🎓 Расписание преподавателя"), KeyboardButton("🚪 Расписание кабинета")], 
+            [KeyboardButton("🎓 Расписание преподавателя(бета)"), KeyboardButton("🚪 Расписание кабинета(бета)")], 
             [KeyboardButton("Подписаться на замены"), KeyboardButton("Отписаться от замен")]
         ], resize_keyboard=True)
 
