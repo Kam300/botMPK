@@ -34,14 +34,14 @@ FIRST_RUN_MARKER_FILE = "schedule_first_run_completed.txt"
 
 # URLs для расписаний групп
 GROUP_SCHEDULE_URLS = [
-    "https://newlms.magtu.ru/mod/folder/view.php?id=1223698",
-    "https://newlms.magtu.ru/mod/folder/view.php?id=1584699",
-    "https://newlms.magtu.ru/mod/folder/view.php?id=1584701",
-    "https://newlms.magtu.ru/mod/folder/view.php?id=1584707"
+    "https://newlms.magtu.ru/mod/folder/view.php?id=1584679",
+    "https://newlms.magtu.ru/mod/folder/view.php?id=1584691",
+    "https://newlms.magtu.ru/mod/folder/view.php?id=1584686",
+    "https://newlms.magtu.ru/mod/folder/view.php?id=1584687"
 ]
 
 # URL для замен
-REPLACEMENTS_URL = "https://newlms.magtu.ru/mod/folder/view.php?id=1223702"
+REPLACEMENTS_URL = "https://newlms.magtu.ru/mod/folder/view.php?id=219250"
 
 # Минимальный интервал для обновления расписаний групп в часах
 SCHEDULE_UPDATE_INTERVAL_HOURS = 96

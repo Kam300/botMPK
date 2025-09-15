@@ -220,9 +220,9 @@ def is_file_applicable_for_date(file_name, date_str):
                         # Try with full year format (DD.MM.YYYY)
                         start_date = datetime.strptime(start_str, '%d.%m.%Y').date()
                         end_date = datetime.strptime(end_str, '%d.%m.%Y').date()
-                        except ValueError:
+                    except ValueError:
                         # If we can't parse the dates, assume not applicable
-                            result = False
+                        result = False
                     
                     # Check if target date is in range
                 if not result and 'start_date' in locals() and 'end_date' in locals():

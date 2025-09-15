@@ -119,7 +119,7 @@ async def get_teacher_schedule(teacher_name: str, start_date: str, end_date: str
                         end_date_obj = single_date
                         end_date = single_date.strftime('%d.%m.%Y')
                         logger.info(f"Extended end date to {end_date} due to single date file {file}")
-                    except Exception as e:
+                except Exception as e:
                     logger.error(f"Error processing single date file {file}: {e}")
                     continue
         
@@ -244,7 +244,7 @@ async def get_teacher_schedule(teacher_name: str, start_date: str, end_date: str
     except Exception as e:
         logger.error(f"Error in patched get_teacher_schedule: {e}")
         # Mark the future as failed (if it exists)
-            with ongoing_requests_lock:
+        with ongoing_requests_lock:
             if request_key in ongoing_requests and not ongoing_requests[request_key]['future'].done():
                 ongoing_requests[request_key]['future'].set_exception(e)
                 # Remove the request

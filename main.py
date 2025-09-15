@@ -139,7 +139,7 @@ def patch_notification_system():
                     chat_ids = notification_data.get("chat_ids", [])
                     
                     if message and chat_ids:
-                        bot = Bot(token="5849256613:AAH34MtjRPyBhrtQouFseQzVw5G9KJsX1WQ")
+                        bot = Bot(token="6280539073:AAHsryeRAeicXw_pPBQB_ME6i1Ku7Bc_IM0")
                         
                         for chat_id in chat_ids:
                             try:

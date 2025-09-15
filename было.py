@@ -47,7 +47,7 @@ import httpx  # Add this import
 
 
 
-TELEGRAM_TOKEN="5849256613:AAH34MtjRPyBhrtQouFseQzVw5G9KJsX1WQ"
+TELEGRAM_TOKEN="6280539073:AAHsryeRAeicXw_pPBQB_ME6i1Ku7Bc_IM0"
 file_access_semaphore = asyncio.Semaphore(3)
 # ID администраторов, которые могут очищать кэш
 # Чтобы узнать свой ID, отправьте боту команду /clear_cache и посмотрите ID в ответном сообщении
@@ -330,7 +330,7 @@ def is_theory_lesson(subject):
     if '(то)' in subject:
         return True
     # Проверяем на практические/лабораторные/профильные работы
-    non_theory_indicators = ['(пр)', '(лаб)', '(кп)', '(проф.)']
+    non_theory_indicators = ['(пр)', '(лаб)', '(кп)', '(проф.)', 'Физкультура']
     # Специальные предметы, которые всегда по подгруппам
     subgroup_subjects = ['ин.яз']
     # Если предмет в списке подгрупповых, он не теоретический
